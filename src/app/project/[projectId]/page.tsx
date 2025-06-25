@@ -51,11 +51,13 @@ import {
 import { deleteProject, updateProject } from "@/lib/firestore";
 import { EditProjectModal } from "@/components/EditProjectModal";
 
-export default function ProjectDetail({
-  params,
-}: {
+// Define a type for the component's props
+type PageProps = {
   params: { projectId: string };
-}) {
+  searchParams?: { [key: string]: string | string[] | undefined }; // It's good practice to include searchParams
+};
+
+export default function ProjectDetail({ params }: PageProps) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);

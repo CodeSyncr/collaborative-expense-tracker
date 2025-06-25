@@ -33,6 +33,7 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { Timestamp } from "firebase/firestore";
+import Image from "next/image";
 
 interface ExpenseListProps {
   projectId: string;
@@ -338,10 +339,13 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
           ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(
             receiptDialogType
           ) ? (
-            <img
+            <Image
               src={receiptDialogUrl}
               alt="Receipt"
+              width={600}
+              height={800}
               className="w-full rounded-xl"
+              style={{ height: "auto" }}
             />
           ) : null}
         </DialogContent>
