@@ -50,6 +50,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { deleteProject, updateProject } from "@/lib/firestore";
 import { EditProjectModal } from "@/components/EditProjectModal";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Define a type for the component's props
 type PageProps = {
@@ -190,22 +196,46 @@ export default function ProjectDetail({ params }: PageProps) {
             <div className="flex items-center gap-4">
               <div className="flex -space-x-2">
                 {Object.values(project.members).map(
-                  (
-                    member: { displayName: string; photoURL?: string },
-                    index
-                  ) => (
-                    <Avatar
-                      key={index}
-                      className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20"
-                    >
-                      <AvatarImage
-                        src={member.photoURL || "/placeholder.svg"}
-                      />
-                      <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-                        {member.displayName[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                  )
+                  (member: { displayName: string; photoURL?: string }, index) =>
+                    index === 0 ? (
+                      <DropdownMenu key={index}>
+                        <DropdownMenuTrigger asChild>
+                          <Avatar className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20 cursor-pointer">
+                            <AvatarImage
+                              src={member.photoURL || "/placeholder.svg"}
+                            />
+                            <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+                              {member.displayName[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => setEditDialogOpen(true)}
+                          >
+                            Edit Project
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setDeleteDialogOpen(true)}
+                            className="text-red-600"
+                          >
+                            Delete Project
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <Avatar
+                        key={index}
+                        className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20"
+                      >
+                        <AvatarImage
+                          src={member.photoURL || "/placeholder.svg"}
+                        />
+                        <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+                          {member.displayName[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                    )
                 )}
               </div>
               <Button
@@ -216,24 +246,6 @@ export default function ProjectDetail({ params }: PageProps) {
                 <Share2 className="h-4 w-4 mr-2" />
                 {shareLoading ? "Generating..." : "Share Project"}
               </Button>
-              <Button
-                variant="outline"
-                className="border-red-300 text-red-600 hover:bg-red-50"
-                onClick={() => setEditDialogOpen(true)}
-              >
-                Edit Project
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={() => setDeleteDialogOpen(true)}
-                  >
-                    Delete Project
-                  </Button>
-                </AlertDialogTrigger>
-              </AlertDialog>
             </div>
           </div>
           <div className="pb-6">
