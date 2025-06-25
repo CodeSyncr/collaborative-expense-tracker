@@ -9,6 +9,7 @@ import {
   query,
   updateDoc,
   where,
+  getDoc,
 } from "firebase/firestore";
 import {
   deleteObject,
@@ -131,6 +132,34 @@ export const addExpense = async (
     };
 
     const expenseDocRef = await addDoc(expenseCollectionRef, docData);
+
+    // 3. Send notifications to all project members except the creator
+    // Fetch project to get members
+    const projectDoc = await doc(db, "projects", projectId);
+    const projectSnap = await getDoc(projectDoc);
+    if (projectSnap.exists()) {
+      const projectData = projectSnap.data();
+      const members = projectData.members || {};
+      const creatorUid = expenseData.createdBy;
+      const creatorName = members[creatorUid]?.displayName || "Someone";
+      const notification = {
+        type: "expense_added",
+        projectId,
+        expenseId: expenseDocRef.id,
+        by: creatorUid,
+        byName: creatorName,
+        description: expenseData.description,
+        amount: expenseData.amount,
+        createdAt: Timestamp.now(),
+      };
+      await Promise.all(
+        Object.keys(members)
+          .filter((uid) => uid !== creatorUid)
+          .map((uid) =>
+            addDoc(collection(db, "users", uid, "notifications"), notification)
+          )
+      );
+    }
 
     return { id: expenseDocRef.id };
   } catch (error) {

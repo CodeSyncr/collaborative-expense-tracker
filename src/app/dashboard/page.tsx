@@ -3,7 +3,7 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import {
@@ -14,14 +14,24 @@ import {
   getDocs,
   doc as firestoreDoc,
   getDoc as firestoreGetDoc,
+  onSnapshot as onFirestoreSnapshot,
+  collection as firestoreCollection,
+  deleteDoc,
 } from "firebase/firestore";
 import Link from "next/link";
 import { NewProjectModal } from "@/components/NewProjectModal";
 // Import your UI components (replace with your actual imports)
+// If you haven't already, install sonner: npm install sonner
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 
 import {
   TrendingUp,
@@ -31,6 +41,18 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+
+type Notification = {
+  id: string;
+  type: string;
+  projectId: string;
+  expenseId: string;
+  by: string;
+  byName: string;
+  description: string;
+  amount: number;
+  createdAt: { seconds: number; nanoseconds: number };
+};
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -53,6 +75,10 @@ export default function Dashboard() {
   const [userMap, setUserMap] = useState<
     Record<string, { displayName: string; email: string; photoURL?: string }>
   >({});
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const lastNotificationId = useRef<string | null>(null);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -137,6 +163,55 @@ export default function Dashboard() {
       return () => unsubscribe();
     }
   }, [user, loading, router]);
+
+  // Listen for notifications
+  useEffect(() => {
+    if (!user) return;
+    const notificationsRef = firestoreCollection(
+      db,
+      "users",
+      user.uid,
+      "notifications"
+    );
+    const unsubscribe = onFirestoreSnapshot(notificationsRef, (snapshot) => {
+      const notifs = snapshot.docs.map(
+        (doc) => ({ id: doc.id, ...doc.data() } as Notification)
+      );
+      setNotifications(
+        notifs.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds)
+      );
+      setUnreadCount(notifs.length);
+      // Show toast for new notification
+      if (notifs.length > 0 && notifs[0].id !== lastNotificationId.current) {
+        const notif = notifs[0];
+        if (notif.type === "expense_added") {
+          toast.success(
+            `${notif.byName || "A member"} added an expense: ${
+              notif.description
+            } (₹${notif.amount})`,
+            { duration: 6000 }
+          );
+        }
+        lastNotificationId.current = notifs[0].id;
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // Mark all as read (delete notifications)
+  const clearNotifications = async () => {
+    if (!user) return;
+    const notifs = [...notifications];
+    setNotifications([]);
+    setUnreadCount(0);
+    await Promise.all(
+      notifs.map((notif) =>
+        deleteDoc(
+          firestoreDoc(db, "users", user.uid, "notifications", notif.id)
+        )
+      )
+    );
+  };
 
   const handleSignOut = async () => {
     try {
@@ -227,10 +302,77 @@ export default function Dashboard() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="w-5 h-5" />
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
-              </Button>
+              <div className="relative">
+                <DropdownMenu
+                  open={notifDropdownOpen}
+                  onOpenChange={setNotifDropdownOpen}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="relative">
+                      <Bell className="w-5 h-5" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 p-0">
+                    <div className="p-3 border-b font-semibold text-gray-700 flex justify-between items-center">
+                      Notifications
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={clearNotifications}
+                          className="text-xs text-red-500 hover:underline"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y">
+                      {notifications.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500 text-sm">
+                          No notifications
+                        </div>
+                      ) : (
+                        notifications.map((notif) => (
+                          <div key={notif.id} className="p-3 text-sm">
+                            {notif.type === "expense_added" ? (
+                              <div>
+                                <span className="font-semibold text-emerald-700">
+                                  {notif.byName || "A member"}
+                                </span>{" "}
+                                added an expense:
+                                <br />
+                                <span className="font-medium">
+                                  {notif.description}
+                                </span>{" "}
+                                <span className="text-gray-500">
+                                  (₹{notif.amount})
+                                </span>
+                              </div>
+                            ) : (
+                              <span>Unknown notification</span>
+                            )}
+                            <div className="text-xs text-gray-400 mt-1">
+                              {notif.createdAt &&
+                                new Date(
+                                  notif.createdAt.seconds * 1000
+                                ).toLocaleString("en-US", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               <Avatar className="w-10 h-10 ring-2 ring-purple-500/20">
                 <AvatarImage
                   src={user.photoURL || "/placeholder.svg?height=40&width=40"}
