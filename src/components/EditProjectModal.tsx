@@ -46,7 +46,7 @@ export function EditProjectModal({
     setProjectName(project.projectName || "");
     setTotalBudget(project.totalBudget.toString() || "");
     setMembers(
-      Object.values(project.members).map((m: any) => ({
+      Object.values(project.members).map((m) => ({
         email: m.email,
         displayName: m.displayName || "",
         contribution: m.contribution,
@@ -91,23 +91,28 @@ export function EditProjectModal({
     }
     setLoading(true);
     try {
-      await updateProject(
-        project.id,
-        projectName,
-        totalBudgetNum,
-        members.map((m) => ({
-          email: m.email,
+      const membersMap: Project["members"] = {};
+      members.forEach((m) => {
+        membersMap[m.email] = {
           displayName: m.displayName,
-          contribution: Number(m.contribution),
+          email: m.email,
           photoURL: m.photoURL || "",
-        }))
-      );
+          contribution: Number(m.contribution),
+        };
+      });
+      await updateProject(project.id, {
+        projectName,
+        totalBudget: totalBudgetNum,
+        members: membersMap,
+        memberEmails: members.map((m) => m.email),
+        memberUids: members.map((m) => m.email),
+      });
       if (onProjectUpdated) {
         onProjectUpdated({
           ...project,
           projectName,
           totalBudget: totalBudgetNum,
-          members: Object.fromEntries(members.map((m) => [m.email, m])),
+          members: membersMap,
         });
       }
       onOpenChange(false);
