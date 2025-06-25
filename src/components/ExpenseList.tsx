@@ -177,6 +177,20 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
     years.push(new Date().getFullYear());
   years.sort((a, b) => b - a);
 
+  // Group expenses by date string
+  function groupExpensesByDate(expenses: Expense[]) {
+    return expenses.reduce((groups, expense) => {
+      const dateStr = expense.createdAt.toDate().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+      });
+      if (!groups[dateStr]) groups[dateStr] = [];
+      groups[dateStr].push(expense);
+      return groups;
+    }, {} as Record<string, Expense[]>);
+  }
+
   if (loading) {
     return <p>Loading expenses...</p>;
   }
@@ -260,115 +274,129 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
               </p>
             </div>
           ) : (
-            <div className="space-y-3 sm:space-y-4">
-              {filteredExpenses.map((expense, index) => {
-                const member =
-                  project.members[expense.createdBy] ||
-                  userMap[expense.createdBy];
-                const isCurrentUser = expense.createdBy === currentUserId;
-                const categoryColor =
-                  categoryColors[expense.category] || categoryColors["Other"];
-                const imageUrl = (expense as { imageUrl?: string }).imageUrl;
-                const imagePath =
-                  (expense as { imagePath?: string }).imagePath ?? null;
-                const fileType = imageUrl
-                  ? imageUrl.split(".").pop()?.toLowerCase()
-                  : null;
-                const isImage =
-                  fileType &&
-                  ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(
-                    fileType
-                  );
-                return (
-                  <div
-                    key={expense.id}
-                    className="group p-4 sm:p-6 border border-gray-200 rounded-xl sm:rounded-2xl hover:shadow-lg transition-all duration-300 bg-white/70 backdrop-blur-sm hover:bg-white/90"
-                  >
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
-                      <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
-                        <Avatar className="h-10 w-10 sm:h-12 sm:w-12 ring-2 ring-purple-500/20 shadow-lg">
-                          <AvatarImage
-                            src={member?.photoURL || "/placeholder.svg"}
-                          />
-                          <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold">
-                            {member?.displayName[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
-                            <h3 className="font-bold text-gray-900 text-base sm:text-lg truncate">
-                              {expense.description}
-                            </h3>
-                            <div
-                              className={`px-2 sm:px-3 py-1 rounded-full bg-gradient-to-r ${categoryColor} text-white text-xs font-semibold`}
-                            >
-                              {expense.category}
+            <div className="space-y-6 sm:space-y-8">
+              {Object.entries(groupExpensesByDate(filteredExpenses)).map(
+                ([date, expenses]) => (
+                  <div key={date}>
+                    <div className="font-bold text-lg text-gray-700 mb-2 mt-6">
+                      {date}
+                    </div>
+                    <div className="space-y-3 sm:space-y-4">
+                      {expenses.map((expense, index) => {
+                        const member =
+                          project.members[expense.createdBy] ||
+                          userMap[expense.createdBy];
+                        const isCurrentUser =
+                          expense.createdBy === currentUserId;
+                        const categoryColor =
+                          categoryColors[expense.category] ||
+                          categoryColors["Other"];
+                        const imageUrl = (expense as { imageUrl?: string })
+                          .imageUrl;
+                        const imagePath =
+                          (expense as { imagePath?: string }).imagePath ?? null;
+                        const fileType = imageUrl
+                          ? imageUrl.split(".").pop()?.toLowerCase()
+                          : null;
+                        const isImage =
+                          fileType &&
+                          ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(
+                            fileType
+                          );
+                        return (
+                          <div
+                            key={expense.id}
+                            className="group p-4 sm:p-6 border border-gray-200 rounded-xl sm:rounded-2xl hover:shadow-lg transition-all duration-300 bg-white/70 backdrop-blur-sm hover:bg-white/90"
+                          >
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
+                              <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+                                <Avatar className="h-10 w-10 sm:h-12 sm:w-12 ring-2 ring-purple-500/20 shadow-lg">
+                                  <AvatarImage
+                                    src={member?.photoURL || "/placeholder.svg"}
+                                  />
+                                  <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold">
+                                    {member?.displayName[0]}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
+                                    <h3 className="font-bold text-gray-900 text-base sm:text-lg truncate">
+                                      {expense.description}
+                                    </h3>
+                                    <div
+                                      className={`px-2 sm:px-3 py-1 rounded-full bg-gradient-to-r ${categoryColor} text-white text-xs font-semibold`}
+                                    >
+                                      {expense.category}
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
+                                    <span className="flex items-center gap-1">
+                                      <Calendar className="w-4 h-4" />
+                                      Added by {member?.displayName}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Calendar className="w-4 h-4" />
+                                      {formatDate(expense.createdAt)}
+                                    </span>
+                                    {imageUrl && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="ml-2 px-2 sm:px-3 py-1 text-xs font-semibold border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                        onClick={() => {
+                                          if (isImage) {
+                                            setReceiptDialogUrl(imageUrl);
+                                            setReceiptDialogType(fileType!);
+                                          } else {
+                                            window.open(imageUrl, "_blank");
+                                          }
+                                        }}
+                                      >
+                                        View Receipt
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                                <div className="text-right">
+                                  <p className="text-xl sm:text-2xl font-bold text-gray-900">
+                                    ₹{expense.amount.toLocaleString()}
+                                  </p>
+                                  <p className="text-xs sm:text-sm text-gray-500">
+                                    Expense #{index + 1}
+                                  </p>
+                                </div>
+                                {isCurrentUser && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        onClick={() => {
+                                          setPendingDelete({
+                                            expenseId: expense.id,
+                                            imagePath,
+                                          });
+                                          setDeleteDialogOpen(true);
+                                        }}
+                                        variant="ghost"
+                                        size="icon"
+                                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 hover:bg-red-50 w-8 h-8 sm:w-10 sm:h-10"
+                                      >
+                                        <Trash2 className="h-5 w-5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                  </AlertDialog>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4" />
-                              Added by {member?.displayName}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4" />
-                              {formatDate(expense.createdAt)}
-                            </span>
-                            {imageUrl && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="ml-2 px-2 sm:px-3 py-1 text-xs font-semibold border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                                onClick={() => {
-                                  if (isImage) {
-                                    setReceiptDialogUrl(imageUrl);
-                                    setReceiptDialogType(fileType!);
-                                  } else {
-                                    window.open(imageUrl, "_blank");
-                                  }
-                                }}
-                              >
-                                View Receipt
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
-                        <div className="text-right">
-                          <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                            ₹{expense.amount.toLocaleString()}
-                          </p>
-                          <p className="text-xs sm:text-sm text-gray-500">
-                            Expense #{index + 1}
-                          </p>
-                        </div>
-                        {isCurrentUser && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                onClick={() => {
-                                  setPendingDelete({
-                                    expenseId: expense.id,
-                                    imagePath,
-                                  });
-                                  setDeleteDialogOpen(true);
-                                }}
-                                variant="ghost"
-                                size="icon"
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 hover:bg-red-50 w-8 h-8 sm:w-10 sm:h-10"
-                              >
-                                <Trash2 className="h-5 w-5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                          </AlertDialog>
-                        )}
-                      </div>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
+                )
+              )}
             </div>
           )}
         </CardContent>
