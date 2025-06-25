@@ -49,11 +49,12 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { deleteProject, updateProject } from "@/lib/firestore";
+import { EditProjectModal } from "@/components/EditProjectModal";
 
 export default function ProjectDetail({
   params,
 }: {
-  params: Promise<{ projectId: string }>;
+  params: { projectId: string };
 }) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -62,7 +63,6 @@ export default function ProjectDetail({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
-  const actualParams = React.use(params);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
@@ -81,7 +81,7 @@ export default function ProjectDetail({
     const fetchProject = async () => {
       try {
         setLoading(true);
-        const projectDocRef = doc(db, "projects", actualParams.projectId);
+        const projectDocRef = doc(db, "projects", params.projectId);
         const projectDoc = await getDoc(projectDocRef);
         if (projectDoc.exists()) {
           setProject({ id: projectDoc.id, ...projectDoc.data() } as Project);
@@ -96,7 +96,7 @@ export default function ProjectDetail({
     };
     fetchProject();
     const expensesQuery = query(
-      collection(db, "projects", actualParams.projectId, "expenses"),
+      collection(db, "projects", params.projectId, "expenses"),
       orderBy("createdAt", "desc")
     );
     const unsubscribe = onSnapshot(expensesQuery, (snapshot) => {
@@ -107,7 +107,7 @@ export default function ProjectDetail({
       setExpenses(expensesData);
     });
     return () => unsubscribe();
-  }, [actualParams.projectId, user]);
+  }, [params.projectId, user]);
 
   const handleShare = async () => {
     if (!project) return;
@@ -472,7 +472,12 @@ export default function ProjectDetail({
           </AlertDialogContent>
         </AlertDialog>
         {/* Edit Project Modal Placeholder */}
-        {/* TODO: Implement EditProjectModal and logic */}
+        <EditProjectModal
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          project={project}
+          onProjectUpdated={(updated) => setProject(updated)}
+        />
       </main>
     </div>
   );
