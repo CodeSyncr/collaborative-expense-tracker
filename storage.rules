@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service firebase.storage {
+  // Match the bucket for your project
+  match /b/{bucket}/o {
+    
+    // Match the folder path we use for expense images
+    match /expenses/{projectId}/{fileName} {
+      
+      // Helper function to check if the requesting user is a member of the project
+      function isProjectMember() {
+        // Get the project document from Firestore and check if the user's UID is in the memberUids array
+        return request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids;
+      }
+      
+      // Allow reading files only if the user is a member of the project
+      allow read: if isProjectMember();
+      
+      // Allow creating/writing files only if the user is a member of the project
+      allow create: if isProjectMember();
+      
+      // Disallow updates and deletes for now to prevent overwriting/removing receipts
+      allow update, delete: if false;
+    }
+  }
+} 
