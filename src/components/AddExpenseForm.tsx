@@ -19,6 +19,7 @@ import {
   DollarSign,
   Tag,
   Calendar as CalendarIcon,
+  X,
 } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 
@@ -61,12 +62,103 @@ const categories = [
     icon: "⚡",
   },
   {
+    value: "Carpentering",
+    label: "Carpentering",
+    color: "from-amber-700 to-yellow-400",
+    icon: "🪚",
+  },
+  {
+    value: "Painting",
+    label: "Painting",
+    color: "from-pink-500 to-yellow-300",
+    icon: "🎨",
+  },
+  {
+    value: "Interior Design",
+    label: "Interior Design",
+    color: "from-indigo-500 to-pink-400",
+    icon: "🛋️",
+  },
+  {
+    value: "Consultancy",
+    label: "Consultancy",
+    color: "from-blue-900 to-blue-400",
+    icon: "💼",
+  },
+  {
+    value: "Legal Fees",
+    label: "Legal Fees",
+    color: "from-gray-700 to-gray-400",
+    icon: "📜",
+  },
+  {
+    value: "Permits & Licenses",
+    label: "Permits & Licenses",
+    color: "from-green-700 to-green-300",
+    icon: "📝",
+  },
+  {
+    value: "Cleaning",
+    label: "Cleaning",
+    color: "from-teal-400 to-blue-200",
+    icon: "🧹",
+  },
+  {
     value: "Miscellaneous",
     label: "Miscellaneous",
     color: "from-gray-500 to-slate-500",
     icon: "📦",
   },
+  {
+    value: "Other",
+    label: "Other",
+    color: "from-gray-400 to-gray-600",
+    icon: "❓",
+  },
 ];
+
+// Utility to compress image to JPEG
+async function compressImage(
+  file: File,
+  maxSize = 1200,
+  quality = 0.7
+): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("No canvas context"));
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error("Compression failed"));
+          resolve(
+            new File([blob], file.name.replace(/\.(png|jpeg|jpg)$/i, ".jpg"), {
+              type: "image/jpeg",
+            })
+          );
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+    img.onerror = (e) => reject(e);
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 const AddExpenseForm = ({
   projectId,
@@ -78,7 +170,8 @@ const AddExpenseForm = ({
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState(categories[0].value);
-  const [image, setImage] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [compressing, setCompressing] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [date, setDate] = useState<string>(() => {
@@ -104,13 +197,16 @@ const AddExpenseForm = ({
           createdBy: user.uid,
           createdAt: Timestamp.fromDate(new Date(date)),
         },
-        image
+        files
       );
       setDescription("");
       setAmount("");
       setCategory(categories[0].value);
-      setImage(null);
-      setDate(new Date().toISOString().slice(0, 10));
+      setFiles([]);
+      setDate(() => {
+        const today = new Date();
+        return today.toISOString().slice(0, 10);
+      });
       const fileInput = document.getElementById("receipt") as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       onExpenseAdded();
@@ -237,6 +333,29 @@ const AddExpenseForm = ({
             />
           </div>
           <div className="space-y-2 sm:space-y-3">
+            {files.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {files.map((file, idx) => (
+                  <div
+                    key={file.name + idx}
+                    className="flex items-center bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1 text-sm shadow-sm gap-2"
+                  >
+                    <span className="truncate max-w-[120px]">{file.name}</span>
+                    <button
+                      type="button"
+                      aria-label="Remove file"
+                      className="text-emerald-600 hover:text-red-500 focus:outline-none"
+                      onClick={() => {
+                        setFiles((prev) => prev.filter((_, i) => i !== idx));
+                        setError("");
+                      }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <Label
               htmlFor="receipt"
               className="text-sm font-semibold text-gray-700 flex items-center gap-1 sm:gap-2"
@@ -248,20 +367,66 @@ const AddExpenseForm = ({
               <input
                 id="receipt"
                 type="file"
-                accept="image/*,.pdf"
-                onChange={(e) => setImage(e.target.files?.[0] || null)}
+                accept=".jpg,.jpeg,.png,.pdf"
+                multiple
+                onChange={async (e) => {
+                  const fileList = e.target.files;
+                  if (!fileList || fileList.length === 0) return;
+                  const allowedTypes = [
+                    "image/jpeg",
+                    "image/png",
+                    "application/pdf",
+                  ];
+                  const selectedFiles: File[] = Array.from(fileList);
+                  for (const file of selectedFiles) {
+                    if (!allowedTypes.includes(file.type)) {
+                      setError(
+                        "Only JPG, JPEG, PNG, or PDF files are allowed."
+                      );
+                      setFiles([]);
+                      return;
+                    }
+                  }
+                  setError("");
+                  setCompressing(true);
+                  try {
+                    const processedFiles = await Promise.all(
+                      selectedFiles.map(async (file) => {
+                        if (file.type === "application/pdf") return file;
+                        try {
+                          return await compressImage(file);
+                        } catch {
+                          return file;
+                        }
+                      })
+                    );
+                    setFiles((prev) => {
+                      const existingNames = new Set(prev.map((f) => f.name));
+                      return [
+                        ...prev,
+                        ...processedFiles.filter(
+                          (f) => !existingNames.has(f.name)
+                        ),
+                      ];
+                    });
+                  } finally {
+                    setCompressing(false);
+                  }
+                }}
                 className="hidden"
               />
               <label htmlFor="receipt" className="cursor-pointer">
                 <div className="w-10 h-10 sm:w-16 sm:h-16 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-2 sm:mb-4 group-hover:scale-110 transition-transform">
-                  {image ? (
+                  {files.length > 0 ? (
                     <Receipt className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
                   ) : (
                     <Upload className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
                   )}
                 </div>
                 <p className="font-semibold text-gray-700 mb-1 text-xs sm:text-base">
-                  {image ? `📄 ${image.name}` : "Click to upload receipt"}
+                  {compressing
+                    ? "Compressing..."
+                    : "Click to upload receipt(s)"}
                 </p>
                 <p className="text-xs sm:text-sm text-gray-500">
                   PNG, JPG or PDF up to 10MB
@@ -287,7 +452,7 @@ const AddExpenseForm = ({
             <Button
               type="submit"
               className="flex-1 h-10 sm:h-12 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 text-base font-semibold"
-              disabled={loading}
+              disabled={loading || compressing}
             >
               <Plus className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
               {loading ? "Adding..." : "Add Expense"}

@@ -88,21 +88,33 @@ export const addExpense = async (
     createdBy: string; // user.uid
     createdAt?: Timestamp;
   },
-  receiptImage: File | null
+  receiptFiles: File[]
 ) => {
   try {
-    let imageUrl = "";
-    let imagePath = "";
-
-    // 1. Upload image to Storage if it exists
-    if (receiptImage) {
-      const imageRef = ref(
-        storage,
-        `expenses/${projectId}/${Date.now()}_${receiptImage.name}`
+    // 1. Upload all files to Storage if any
+    let receipts: {
+      imageUrl: string;
+      imagePath: string;
+      name: string;
+      type: string;
+    }[] = [];
+    if (receiptFiles && receiptFiles.length > 0) {
+      receipts = await Promise.all(
+        receiptFiles.map(async (file) => {
+          const imageRef = ref(
+            storage,
+            `expenses/${projectId}/${Date.now()}_${file.name}`
+          );
+          const snapshot = await uploadBytes(imageRef, file);
+          const imageUrl = await getDownloadURL(snapshot.ref);
+          return {
+            imageUrl,
+            imagePath: snapshot.ref.fullPath,
+            name: file.name,
+            type: file.type,
+          };
+        })
       );
-      const snapshot = await uploadBytes(imageRef, receiptImage);
-      imageUrl = await getDownloadURL(snapshot.ref);
-      imagePath = snapshot.ref.fullPath;
     }
 
     // 2. Add expense to the expenses subcollection of the project
@@ -115,8 +127,7 @@ export const addExpense = async (
     const docData = {
       ...expenseData,
       createdAt: expenseData.createdAt || Timestamp.now(),
-      ...(imageUrl && { imageUrl }),
-      ...(imagePath && { imagePath }),
+      ...(receipts.length > 0 ? { receipts } : {}),
     };
 
     const expenseDocRef = await addDoc(expenseCollectionRef, docData);

@@ -139,8 +139,6 @@ export default function ProjectDetail({ params }: PageProps) {
   const allUidsSet = new Set([...memberUids, ...expenseUids]);
   const allUids = Array.from(allUidsSet);
 
-  console.log("allUids ::", allUids);
-
   // Fetch user data for UIDs not in project.members
   useEffect(() => {
     if (!project) return;
@@ -253,10 +251,13 @@ export default function ProjectDetail({ params }: PageProps) {
             </div>
             <div className="flex items-center gap-4">
               <div className="flex -space-x-2">
-                {Object.values(project.members).map(
-                  (member: { displayName: string; photoURL?: string }, index) =>
-                    index === 0 ? (
-                      <DropdownMenu key={index}>
+                {allUids.map((uid, index) => {
+                  const member = project.members[uid] || userMap[uid];
+                  if (!member) return null;
+                  // First avatar gets dropdown
+                  if (index === 0) {
+                    return (
+                      <DropdownMenu key={uid}>
                         <DropdownMenuTrigger asChild>
                           <Avatar className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20 cursor-pointer">
                             <AvatarImage
@@ -281,20 +282,22 @@ export default function ProjectDetail({ params }: PageProps) {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    ) : (
-                      <Avatar
-                        key={index}
-                        className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20"
-                      >
-                        <AvatarImage
-                          src={member.photoURL || "/placeholder.svg"}
-                        />
-                        <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-                          {member.displayName[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                    )
-                )}
+                    );
+                  }
+                  return (
+                    <Avatar
+                      key={uid}
+                      className="h-10 w-10 border-2 border-white shadow-lg ring-2 ring-purple-500/20"
+                    >
+                      <AvatarImage
+                        src={member.photoURL || "/placeholder.svg"}
+                      />
+                      <AvatarFallback className="bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+                        {member.displayName[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                  );
+                })}
               </div>
               <Button
                 className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white border-0 shadow-lg"
@@ -302,7 +305,7 @@ export default function ProjectDetail({ params }: PageProps) {
                 disabled={shareLoading}
               >
                 <Share2 className="h-4 w-4 mr-2" />
-                {shareLoading ? "Generating..." : "Share Project"}
+                {shareLoading ? "Generating..." : "Share"}
               </Button>
             </div>
           </div>
@@ -341,7 +344,7 @@ export default function ProjectDetail({ params }: PageProps) {
                     </p>
                   </div>
                   <p className="text-3xl font-bold">
-                    ₹{totalSpent.toLocaleString()}
+                    ₹{totalSpent.toLocaleString("en-US")}
                   </p>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
@@ -352,7 +355,7 @@ export default function ProjectDetail({ params }: PageProps) {
                     </p>
                   </div>
                   <p className="text-3xl font-bold">
-                    ₹{remainingBudget.toLocaleString()}
+                    ₹{remainingBudget.toLocaleString("en-US")}
                   </p>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
@@ -363,7 +366,7 @@ export default function ProjectDetail({ params }: PageProps) {
                     </p>
                   </div>
                   <p className="text-3xl font-bold">
-                    ₹{project.totalBudget.toLocaleString()}
+                    ₹{project.totalBudget.toLocaleString("en-US")}
                   </p>
                 </div>
               </div>
@@ -397,7 +400,6 @@ export default function ProjectDetail({ params }: PageProps) {
                 {project &&
                   allUids
                     .map((memberId) => {
-                      console.log("memberId ::", memberId);
                       const member =
                         project.members[memberId] || userMap[memberId];
                       if (!member) return null;
@@ -439,14 +441,14 @@ export default function ProjectDetail({ params }: PageProps) {
                                 <p className="text-white/70 text-sm">
                                   Contribution: ₹
                                   {contribution
-                                    ? contribution.toLocaleString()
+                                    ? contribution.toLocaleString("en-US")
                                     : "-"}
                                 </p>
                               </div>
                             </div>
                             <div className="text-right">
                               <p className="font-bold text-xl text-white">
-                                ₹{spent.toLocaleString()}
+                                ₹{spent.toLocaleString("en-US")}
                               </p>
                               <p className="text-white/70 text-sm">
                                 {contribution > 0

@@ -12,6 +12,8 @@ import {
   query,
   where,
   getDocs,
+  doc as firestoreDoc,
+  getDoc as firestoreGetDoc,
 } from "firebase/firestore";
 import Link from "next/link";
 import { NewProjectModal } from "@/components/NewProjectModal";
@@ -40,12 +42,17 @@ export default function Dashboard() {
     projectName: string;
     members: any;
     expenses: any[];
+    allUids: string[];
     [key: string]: any;
   };
   const [projectsWithExpenses, setProjectsWithExpenses] = useState<
     DashboardProject[]
   >([]);
   const [loadingExpenses, setLoadingExpenses] = useState(true);
+  const [search, setSearch] = useState("");
+  const [userMap, setUserMap] = useState<
+    Record<string, { displayName: string; email: string; photoURL?: string }>
+  >({});
 
   useEffect(() => {
     if (!loading && !user) {
@@ -57,6 +64,7 @@ export default function Dashboard() {
       );
       const unsubscribe = onSnapshot(q, async (querySnapshot) => {
         const projectsData: any[] = [];
+        const allUidsSet = new Set<string>();
         for (const docSnap of querySnapshot.docs) {
           const base = docSnap.data();
           // Fetch expenses subcollection
@@ -67,18 +75,64 @@ export default function Dashboard() {
             id: d.id,
             ...d.data(),
           }));
+          // Collect UIDs from members and expenses
+          const memberUids = base.members
+            ? Object.keys(base.members).filter((uid) =>
+                /^[a-zA-Z0-9]{20,}$/.test(uid)
+              )
+            : [];
+          const expenseUids = expenses
+            .map((e: any) => e.createdBy)
+            .filter(Boolean);
+          expenseUids.forEach((uid: string) => allUidsSet.add(uid));
+          memberUids.forEach((uid: string) => allUidsSet.add(uid));
           const project: DashboardProject = {
             id: docSnap.id,
             totalBudget: base.totalBudget,
             projectName: base.projectName,
             members: base.members,
             expenses,
+            allUids: Array.from(new Set([...memberUids, ...expenseUids])),
             ...base,
           };
           projectsData.push(project);
         }
         setProjectsWithExpenses(projectsData);
         setLoadingExpenses(false);
+        // Fetch user data for UIDs not in any project.members
+        const allUids = Array.from(allUidsSet);
+        const missingUids = allUids.filter((uid) => {
+          return (
+            !projectsData.some((p) => p.members && p.members[uid]) &&
+            !userMap[uid]
+          );
+        });
+        if (missingUids.length > 0) {
+          const updates: Record<
+            string,
+            { displayName: string; email: string; photoURL?: string }
+          > = {};
+          await Promise.all(
+            missingUids.map(async (uid) => {
+              try {
+                const userDoc = await firestoreGetDoc(
+                  firestoreDoc(db, "users", uid)
+                );
+                if (userDoc.exists()) {
+                  const data = userDoc.data();
+                  updates[uid] = {
+                    displayName: data.displayName || data.email || "Unknown",
+                    email: data.email || "",
+                    photoURL: data.photoURL || undefined,
+                  };
+                }
+              } catch {}
+            })
+          );
+          if (Object.keys(updates).length > 0) {
+            setUserMap((prev) => ({ ...prev, ...updates }));
+          }
+        }
       });
       return () => unsubscribe();
     }
@@ -169,6 +223,8 @@ export default function Dashboard() {
                 <Input
                   placeholder="Search projects..."
                   className="pl-10 w-64 bg-white/50 border-white/20"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
               <Button variant="ghost" size="icon" className="relative">
@@ -277,105 +333,114 @@ export default function Dashboard() {
 
         {projectsWithExpenses.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projectsWithExpenses.map((project) => {
-              const totalSpent = project.expenses
-                ? project.expenses.reduce(
-                    (s: number, e: any) => s + (e.amount || 0),
-                    0
-                  )
-                : 0;
-              const spentPercentage =
-                (totalSpent / (project.totalBudget || 1)) * 100;
-              const color = "from-purple-500 to-pink-500"; // You can randomize or assign based on project
-              return (
-                <Link key={project.id} href={`/project/${project.id}`}>
-                  <Card className="group hover:shadow-2xl transition-all duration-300 transform hover:scale-105 bg-white/80 backdrop-blur-sm border-white/20 overflow-hidden relative">
-                    <div
-                      className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${color}`}
-                    ></div>
-                    <CardContent className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold text-gray-900 group-hover:text-purple-600 transition-colors">
-                            {project.projectName}
-                          </h3>
-                          <p className="text-gray-500 text-sm">
-                            Budget: ₹{project.totalBudget.toLocaleString()}
+            {projectsWithExpenses
+              .filter((project) =>
+                project.projectName.toLowerCase().includes(search.toLowerCase())
+              )
+              .map((project) => {
+                const totalSpent = project.expenses
+                  ? project.expenses.reduce(
+                      (s: number, e: any) => s + (e.amount || 0),
+                      0
+                    )
+                  : 0;
+                const spentPercentage =
+                  (totalSpent / (project.totalBudget || 1)) * 100;
+                const color = "from-purple-500 to-pink-500"; // You can randomize or assign based on project
+                return (
+                  <Link key={project.id} href={`/project/${project.id}`}>
+                    <Card className="group hover:shadow-2xl transition-all duration-300 transform hover:scale-105 bg-white/80 backdrop-blur-sm border-white/20 overflow-hidden relative">
+                      <div
+                        className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${color}`}
+                      ></div>
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-xl font-bold text-gray-900 group-hover:text-purple-600 transition-colors">
+                              {project.projectName}
+                            </h3>
+                            <p className="text-gray-500 text-sm">
+                              Budget: ₹
+                              {project.totalBudget.toLocaleString("en-US")}
+                            </p>
+                          </div>
+                          <div
+                            className={`w-12 h-12 bg-gradient-to-r ${color} rounded-xl flex items-center justify-center shadow-lg`}
+                          >
+                            <TrendingUp className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+
+                        {/* Progress */}
+                        <div className="mb-4">
+                          <div className="flex justify-between text-sm mb-2">
+                            <span className="text-gray-600">Spent</span>
+                            <span className="font-semibold">
+                              ₹{totalSpent.toLocaleString("en-US")}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full bg-gradient-to-r ${color} transition-all duration-500`}
+                              style={{
+                                width: `${Math.min(spentPercentage, 100)}%`,
+                              }}
+                            ></div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {spentPercentage.toFixed(1)}% of budget used
                           </p>
                         </div>
-                        <div
-                          className={`w-12 h-12 bg-gradient-to-r ${color} rounded-xl flex items-center justify-center shadow-lg`}
-                        >
-                          <TrendingUp className="w-6 h-6 text-white" />
-                        </div>
-                      </div>
 
-                      {/* Progress */}
-                      <div className="mb-4">
-                        <div className="flex justify-between text-sm mb-2">
-                          <span className="text-gray-600">Spent</span>
-                          <span className="font-semibold">
-                            ₹{totalSpent.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full bg-gradient-to-r ${color} transition-all duration-500`}
-                            style={{
-                              width: `${Math.min(spentPercentage, 100)}%`,
-                            }}
-                          ></div>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {spentPercentage.toFixed(1)}% of budget used
-                        </p>
-                      </div>
-
-                      {/* Members */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm text-gray-600">
-                            {project.members
-                              ? Object.keys(project.members).length
-                              : 0}{" "}
-                            members
-                          </span>
-                        </div>
-                        <div className="flex -space-x-2">
-                          {project.members &&
-                            Object.values(project.members)
-                              .slice(0, 3)
-                              .map((member: any, index: number) => (
-                                <Avatar
-                                  key={index}
-                                  className="h-8 w-8 border-2 border-white shadow-sm"
-                                >
-                                  <AvatarImage
-                                    src={member.photoURL || "/placeholder.svg"}
-                                  />
-                                  <AvatarFallback className="text-xs bg-gradient-to-r from-gray-400 to-gray-500 text-white">
-                                    {member.displayName
-                                      ? member.displayName[0]
-                                      : "M"}
-                                  </AvatarFallback>
-                                </Avatar>
-                              ))}
-                          {project.members &&
-                            Object.keys(project.members).length > 3 && (
+                        {/* Members */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm text-gray-600">
+                              {project.members
+                                ? Object.keys(project.members).length
+                                : 0}{" "}
+                              members
+                            </span>
+                          </div>
+                          <div className="flex -space-x-2">
+                            {project.allUids &&
+                              project.allUids.slice(0, 3).map((uid: string) => {
+                                const member =
+                                  project.members?.[uid] || userMap[uid];
+                                if (!member) return null;
+                                return (
+                                  <Avatar
+                                    key={uid}
+                                    className="h-8 w-8 border-2 border-white shadow-sm"
+                                  >
+                                    <AvatarImage
+                                      src={
+                                        member.photoURL || "/placeholder.svg"
+                                      }
+                                    />
+                                    <AvatarFallback className="text-xs bg-gradient-to-r from-gray-400 to-gray-500 text-white">
+                                      {member.displayName
+                                        ? member.displayName[0]
+                                        : "M"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                );
+                              })}
+                            {project.allUids && project.allUids.length > 3 && (
                               <div className="h-8 w-8 bg-gray-100 border-2 border-white rounded-full flex items-center justify-center shadow-sm">
                                 <span className="text-xs text-gray-600">
-                                  +{Object.keys(project.members).length - 3}
+                                  +{project.allUids.length - 3}
                                 </span>
                               </div>
                             )}
+                          </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              );
-            })}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
           </div>
         ) : (
           <div className="text-center py-16">

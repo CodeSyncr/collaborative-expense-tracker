@@ -54,16 +54,26 @@ type User = {
   photoURL?: string;
 };
 
+type ReceiptFile = {
+  imageUrl: string;
+  imagePath?: string;
+  name?: string;
+  type: string;
+};
+
 const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
-  const [receiptDialogUrl, setReceiptDialogUrl] = useState<string | null>(null);
-  const [receiptDialogType, setReceiptDialogType] = useState<string | null>(
-    null
+  const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
+  const [receiptDialogFiles, setReceiptDialogFiles] = useState<
+    ReceiptFile[] | null
+  >(null);
+  const [receiptDialogIndex, setReceiptDialogIndex] = useState(0);
+  const [filterMonth, setFilterMonth] = useState<number>(() =>
+    new Date().getMonth()
   );
-  const [filterMonth, setFilterMonth] = useState<number>(new Date().getMonth());
-  const [filterYear, setFilterYear] = useState<number>(
+  const [filterYear, setFilterYear] = useState<number>(() =>
     new Date().getFullYear()
   );
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -143,9 +153,9 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
   function formatDate(ts: Timestamp) {
     const d = ts.toDate();
     return d.toLocaleDateString("en-US", {
-      day: "2-digit",
-      month: "short",
       year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   }
 
@@ -179,16 +189,17 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
 
   // Group expenses by date string
   function groupExpensesByDate(expenses: Expense[]) {
-    return expenses.reduce((groups, expense) => {
+    const grouped: Record<string, Expense[]> = {};
+    for (const expense of expenses) {
       const dateStr = expense.createdAt.toDate().toLocaleDateString("en-US", {
         year: "numeric",
         month: "short",
-        day: "2-digit",
+        day: "numeric",
       });
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(expense);
-      return groups;
-    }, {} as Record<string, Expense[]>);
+      if (!grouped[dateStr]) grouped[dateStr] = [];
+      grouped[dateStr].push(expense);
+    }
+    return grouped;
   }
 
   if (loading) {
@@ -291,18 +302,31 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
                         const categoryColor =
                           categoryColors[expense.category] ||
                           categoryColors["Other"];
+                        const receipts = (expense as { receipts?: unknown[] })
+                          .receipts;
                         const imageUrl = (expense as { imageUrl?: string })
-                          .imageUrl;
+                          ?.imageUrl;
                         const imagePath =
-                          (expense as { imagePath?: string }).imagePath ?? null;
-                        const fileType = imageUrl
-                          ? imageUrl.split(".").pop()?.toLowerCase()
-                          : null;
-                        const isImage =
-                          fileType &&
-                          ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(
-                            fileType
-                          );
+                          (expense as { imagePath?: string })?.imagePath ??
+                          null;
+                        let receiptFiles: ReceiptFile[] = [];
+                        if (
+                          receipts &&
+                          Array.isArray(receipts) &&
+                          receipts.length > 0
+                        ) {
+                          receiptFiles = receipts as ReceiptFile[];
+                        } else if (imageUrl) {
+                          // fallback for old data
+                          receiptFiles = [
+                            {
+                              imageUrl,
+                              imagePath: imagePath ?? undefined,
+                              name: imageUrl.split("/").pop(),
+                              type: "image/jpeg",
+                            },
+                          ];
+                        }
                         return (
                           <div
                             key={expense.id}
@@ -338,22 +362,20 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
                                       <Calendar className="w-4 h-4" />
                                       {formatDate(expense.createdAt)}
                                     </span>
-                                    {imageUrl && (
+                                    {receiptFiles.length > 0 && (
                                       <Button
                                         type="button"
                                         variant="outline"
                                         size="sm"
                                         className="ml-2 px-2 sm:px-3 py-1 text-xs font-semibold border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                                         onClick={() => {
-                                          if (isImage) {
-                                            setReceiptDialogUrl(imageUrl);
-                                            setReceiptDialogType(fileType!);
-                                          } else {
-                                            window.open(imageUrl, "_blank");
-                                          }
+                                          setReceiptDialogFiles(receiptFiles);
+                                          setReceiptDialogIndex(0);
+                                          setReceiptDialogOpen(true);
                                         }}
                                       >
                                         View Receipt
+                                        {receiptFiles.length > 1 ? "s" : ""}
                                       </Button>
                                     )}
                                   </div>
@@ -362,7 +384,7 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
                               <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
                                 <div className="text-right">
                                   <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                                    ₹{expense.amount.toLocaleString()}
+                                    ₹{expense.amount.toLocaleString("en-US")}
                                   </p>
                                   <p className="text-xs sm:text-sm text-gray-500">
                                     Expense #{index + 1}
@@ -401,29 +423,100 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
           )}
         </CardContent>
       </Card>
-      {/* Receipt Dialog */}
-      <Dialog
-        open={!!receiptDialogUrl}
-        onOpenChange={() => setReceiptDialogUrl(null)}
-      >
-        <DialogContent className="max-w-md">
+      {/* Multi-Receipt Dialog */}
+      <Dialog open={receiptDialogOpen} onOpenChange={setReceiptDialogOpen}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Receipt Preview</DialogTitle>
           </DialogHeader>
-          {receiptDialogUrl &&
-          receiptDialogType &&
-          ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(
-            receiptDialogType
-          ) ? (
-            <Image
-              src={receiptDialogUrl}
-              alt="Receipt"
-              width={600}
-              height={800}
-              className="w-full rounded-xl"
-              style={{ height: "auto" }}
-            />
-          ) : null}
+          {receiptDialogFiles && receiptDialogFiles.length > 0 && (
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={receiptDialogIndex === 0}
+                  onClick={() =>
+                    setReceiptDialogIndex((i) => Math.max(0, i - 1))
+                  }
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+                <span className="text-sm text-gray-600">
+                  {receiptDialogIndex + 1} / {receiptDialogFiles.length}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={
+                    receiptDialogIndex === receiptDialogFiles.length - 1
+                  }
+                  onClick={() =>
+                    setReceiptDialogIndex((i) =>
+                      Math.min(receiptDialogFiles.length - 1, i + 1)
+                    )
+                  }
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              </div>
+              {(() => {
+                const file = receiptDialogFiles[receiptDialogIndex];
+                if (!file) return null;
+                if (file.type.startsWith("image/")) {
+                  return (
+                    <Image
+                      src={file.imageUrl}
+                      alt={file.name || "Receipt"}
+                      width={600}
+                      height={800}
+                      className="w-full rounded-xl"
+                      style={{ height: "auto" }}
+                    />
+                  );
+                } else if (file.type === "application/pdf") {
+                  return (
+                    <a
+                      href={file.imageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline text-center block"
+                    >
+                      Open PDF: {file.name}
+                    </a>
+                  );
+                } else {
+                  return <span>Unsupported file type</span>;
+                }
+              })()}
+              <div className="flex gap-2 mt-2 flex-wrap justify-center">
+                {receiptDialogFiles.map((file, idx) => (
+                  <button
+                    key={file.imageUrl + idx}
+                    className={`border-2 rounded-md p-1 ${
+                      idx === receiptDialogIndex
+                        ? "border-emerald-500"
+                        : "border-transparent"
+                    }`}
+                    onClick={() => setReceiptDialogIndex(idx)}
+                    type="button"
+                  >
+                    {file.type.startsWith("image/") ? (
+                      <Image
+                        src={file.imageUrl}
+                        alt={file.name || "Receipt"}
+                        width={60}
+                        height={60}
+                        className="object-cover rounded"
+                      />
+                    ) : (
+                      <span className="text-xs text-blue-600">PDF</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
       {/* Delete Confirmation AlertDialog */}
