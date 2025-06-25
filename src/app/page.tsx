@@ -86,13 +86,16 @@ export default function Home() {
           {/* Sign in card */}
           <Card className="bg-white/10 backdrop-blur-xl border-white/20 shadow-2xl">
             <CardContent className="p-8">
-              <Link href="/dashboard">
+              <Link
+                href="/dashboard"
+                className="flex w-full items-center justify-center"
+              >
                 <Button
                   onClick={handleSignIn}
-                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 py-4 text-lg font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-0 py-4 text-base font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
                 >
                   <Image
-                    src="/placeholder.svg?height=24&width=24"
+                    src="/google_icon.png"
                     alt="Google"
                     width={24}
                     height={24}
