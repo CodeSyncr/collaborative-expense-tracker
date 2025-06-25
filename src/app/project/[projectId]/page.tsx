@@ -56,14 +56,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  doc as firestoreDoc,
+  getDoc as firestoreGetDoc,
+} from "firebase/firestore";
 
 // Define a type for the component's props
 type PageProps = {
-  params: { projectId: string };
+  params: Promise<{ projectId: string }>;
   searchParams?: { [key: string]: string | string[] | undefined }; // It's good practice to include searchParams
 };
 
+// User type for fetched users
+type User = {
+  displayName: string;
+  email: string;
+  photoURL?: string;
+};
+
 export default function ProjectDetail({ params }: PageProps) {
+  const { projectId } = React.use(params);
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
@@ -77,6 +89,7 @@ export default function ProjectDetail({ params }: PageProps) {
   const [shareError, setShareError] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [userMap, setUserMap] = useState<Record<string, User>>({});
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -89,7 +102,7 @@ export default function ProjectDetail({ params }: PageProps) {
     const fetchProject = async () => {
       try {
         setLoading(true);
-        const projectDocRef = doc(db, "projects", params.projectId);
+        const projectDocRef = doc(db, "projects", projectId);
         const projectDoc = await getDoc(projectDocRef);
         if (projectDoc.exists()) {
           setProject({ id: projectDoc.id, ...projectDoc.data() } as Project);
@@ -104,7 +117,7 @@ export default function ProjectDetail({ params }: PageProps) {
     };
     fetchProject();
     const expensesQuery = query(
-      collection(db, "projects", params.projectId, "expenses"),
+      collection(db, "projects", projectId, "expenses"),
       orderBy("createdAt", "desc")
     );
     const unsubscribe = onSnapshot(expensesQuery, (snapshot) => {
@@ -115,7 +128,53 @@ export default function ProjectDetail({ params }: PageProps) {
       setExpenses(expensesData);
     });
     return () => unsubscribe();
-  }, [params.projectId, user]);
+  }, [projectId, user]);
+
+  // Helper: check if a string is a UID (very basic, you can improve this)
+  const isUid = (str: string) => /^[a-zA-Z0-9]{20,}$/.test(str);
+
+  // Collect all unique UIDs: from project.members and from expenses
+  const memberUids = project ? Object.keys(project.members).filter(isUid) : [];
+  const expenseUids = expenses.map((e) => e.createdBy);
+  const allUidsSet = new Set([...memberUids, ...expenseUids]);
+  const allUids = Array.from(allUidsSet);
+
+  console.log("allUids ::", allUids);
+
+  // Fetch user data for UIDs not in project.members
+  useEffect(() => {
+    if (!project) return;
+    const missingUids = allUids.filter(
+      (uid) => !project.members[uid] && !userMap[uid]
+    );
+    if (missingUids.length === 0) return;
+    const fetchUsers = async () => {
+      const updates: Record<string, User> = {};
+      await Promise.all(
+        missingUids.map(async (uid) => {
+          try {
+            const userDoc = await firestoreGetDoc(
+              firestoreDoc(db, "users", uid)
+            );
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              updates[uid] = {
+                displayName: data.displayName || data.email || "Unknown",
+                email: data.email || "",
+                photoURL: data.photoURL || undefined,
+              };
+            }
+          } catch {}
+        })
+      );
+      if (Object.keys(updates).length > 0) {
+        setUserMap((prev) => ({ ...prev, ...updates }));
+      }
+    };
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Fix: Check if project is not null before accessing project.members in dependency array
+  }, [allUids, project ? project.members : {}, expenses]);
 
   const handleShare = async () => {
     if (!project) return;
@@ -159,22 +218,21 @@ export default function ProjectDetail({ params }: PageProps) {
   }
 
   const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const remainingBudget = project.totalBudget - totalSpent;
-  const spentPercentage = (totalSpent / project.totalBudget) * 100;
-  const memberSpending = Object.keys(project.members).reduce(
-    (acc, memberId) => {
-      const memberExpenses = expenses.filter(
-        (expense) => expense.createdBy === memberId
-      );
-      const totalSpent = memberExpenses.reduce(
-        (sum, expense) => sum + expense.amount,
-        0
-      );
-      acc[memberId] = totalSpent;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+  const remainingBudget = project ? project.totalBudget - totalSpent : 0;
+  const spentPercentage = project
+    ? (totalSpent / project.totalBudget) * 100
+    : 0;
+  const memberSpending = allUids.reduce((acc, memberId) => {
+    const memberExpenses = expenses.filter(
+      (expense) => expense.createdBy === memberId
+    );
+    const totalSpent = memberExpenses.reduce(
+      (sum, expense) => sum + expense.amount,
+      0
+    );
+    acc[memberId] = totalSpent;
+    return acc;
+  }, {} as Record<string, number>);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -336,63 +394,79 @@ export default function ProjectDetail({ params }: PageProps) {
                 <h3 className="font-bold text-xl text-white">
                   Team Spending Breakdown
                 </h3>
-                {Object.entries(project.members).map(
-                  ([memberId, member]: [
-                    string,
-                    {
-                      displayName: string;
-                      photoURL?: string;
-                      contribution: number;
-                    }
-                  ]) => {
-                    const spent = memberSpending[memberId] || 0;
-                    const spentPercentage = (spent / member.contribution) * 100;
-                    return (
-                      <div
-                        key={memberId}
-                        className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20"
-                      >
-                        <div className="flex justify-between items-center mb-4">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-12 w-12 ring-2 ring-white/30">
-                              <AvatarImage
-                                src={member.photoURL || "/placeholder.svg"}
-                              />
-                              <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold">
-                                {member.displayName[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <span className="font-semibold text-lg text-white">
-                                {member.displayName}
-                              </span>
+                {project &&
+                  allUids
+                    .map((memberId) => {
+                      console.log("memberId ::", memberId);
+                      const member =
+                        project.members[memberId] || userMap[memberId];
+                      if (!member) return null;
+                      const spent = memberSpending[memberId] || 0;
+                      // Find contribution: prefer by UID, else by matching email
+                      let contribution = 0;
+                      if (project.members[memberId]) {
+                        contribution =
+                          project.members[memberId].contribution || 0;
+                      } else if (member && member.email) {
+                        const found = Object.values(project.members).find(
+                          (m) => m.email === member.email
+                        );
+                        if (found) {
+                          contribution = found.contribution || 0;
+                        }
+                      }
+                      const spentPercentage =
+                        contribution > 0 ? (spent / contribution) * 100 : 0;
+                      return (
+                        <div
+                          key={memberId}
+                          className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20"
+                        >
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-12 w-12 ring-2 ring-white/30">
+                                <AvatarImage
+                                  src={member.photoURL || "/placeholder.svg"}
+                                />
+                                <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold">
+                                  {member.displayName[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <span className="font-semibold text-lg text-white">
+                                  {member.displayName}
+                                </span>
+                                <p className="text-white/70 text-sm">
+                                  Contribution: ₹
+                                  {contribution
+                                    ? contribution.toLocaleString()
+                                    : "-"}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-bold text-xl text-white">
+                                ₹{spent.toLocaleString()}
+                              </p>
                               <p className="text-white/70 text-sm">
-                                Contribution: ₹
-                                {member.contribution.toLocaleString()}
+                                {contribution > 0
+                                  ? `${spentPercentage.toFixed(1)}% used`
+                                  : "No contribution set"}
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-bold text-xl text-white">
-                              ₹{spent.toLocaleString()}
-                            </p>
-                            <p className="text-white/70 text-sm">
-                              {spentPercentage.toFixed(1)}% used
-                            </p>
+                          <div className="w-full bg-white/20 rounded-full h-3">
+                            <div
+                              className="h-3 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out"
+                              style={{
+                                width: `${Math.min(spentPercentage, 100)}%`,
+                              }}
+                            ></div>
                           </div>
                         </div>
-                        <div className="w-full bg-white/20 rounded-full h-3">
-                          <div
-                            className="h-3 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out"
-                            style={{
-                              width: `${Math.min(spentPercentage, 100)}%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    );
-                  }
-                )}
+                      );
+                    })
+                    .filter(Boolean)}
               </div>
             </CardContent>
           </Card>

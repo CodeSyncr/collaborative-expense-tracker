@@ -4,7 +4,14 @@ import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { deleteExpense } from "@/lib/firestore";
 import { Expense, Project } from "@/lib/types";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -40,6 +47,13 @@ interface ExpenseListProps {
   project: Project;
 }
 
+// User type for fetched users
+type User = {
+  displayName: string;
+  email: string;
+  photoURL?: string;
+};
+
 const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -57,6 +71,7 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
     expenseId: string;
     imagePath: string | null;
   } | null>(null);
+  const [userMap, setUserMap] = useState<Record<string, User>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -76,6 +91,37 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
 
     return () => unsubscribe();
   }, [projectId]);
+
+  // Fetch user data for expenses not in project.members
+  useEffect(() => {
+    const missingUids = expenses
+      .map((expense) => expense.createdBy)
+      .filter((uid) => !project.members[uid] && !userMap[uid]);
+    if (missingUids.length === 0) return;
+    const fetchUsers = async () => {
+      const updates: Record<string, User> = {};
+      await Promise.all(
+        missingUids.map(async (uid) => {
+          try {
+            const userDoc = await getDoc(doc(db, "users", uid));
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              updates[uid] = {
+                displayName: data.displayName || data.email || "Unknown",
+                email: data.email || "",
+                photoURL: data.photoURL || undefined,
+              };
+            }
+          } catch {}
+        })
+      );
+      if (Object.keys(updates).length > 0) {
+        setUserMap((prev) => ({ ...prev, ...updates }));
+      }
+    };
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenses, project.members]);
 
   const handleDelete = async () => {
     if (!pendingDelete) return;
@@ -216,7 +262,9 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
           ) : (
             <div className="space-y-3 sm:space-y-4">
               {filteredExpenses.map((expense, index) => {
-                const member = project.members[expense.createdBy];
+                const member =
+                  project.members[expense.createdBy] ||
+                  userMap[expense.createdBy];
                 const isCurrentUser = expense.createdBy === currentUserId;
                 const categoryColor =
                   categoryColors[expense.category] || categoryColors["Other"];

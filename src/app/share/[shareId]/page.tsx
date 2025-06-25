@@ -12,8 +12,22 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  doc as firestoreDoc,
+  getDoc as firestoreGetDoc,
+} from "firebase/firestore";
 import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
+
+// User type for fetched users
+type User = {
+  displayName: string;
+  email: string;
+  photoURL?: string;
+};
 
 export default function ShareProjectPage({
   params,
@@ -26,6 +40,49 @@ export default function ShareProjectPage({
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userMap, setUserMap] = useState<Record<string, User>>({});
+
+  // Helper: check if a string is a UID (very basic, you can improve this)
+  const isUid = (str: string) => /^[a-zA-Z0-9]{20,}$/.test(str);
+  // Collect all unique UIDs: from project.members and from expenses
+  const memberUids = project ? Object.keys(project.members).filter(isUid) : [];
+  const expenseUids = expenses.map((e) => e.createdBy as string);
+  const allUidsSet = new Set([...memberUids, ...expenseUids]);
+  const allUids = Array.from(allUidsSet);
+
+  // Fetch user data for UIDs not in project.members
+  useEffect(() => {
+    if (!project) return;
+    const missingUids = allUids.filter(
+      (uid) => !project.members[uid] && !userMap[uid]
+    );
+    if (missingUids.length === 0) return;
+    const fetchUsers = async () => {
+      const updates: Record<string, User> = {};
+      await Promise.all(
+        missingUids.map(async (uid) => {
+          try {
+            const userDoc = await firestoreGetDoc(
+              firestoreDoc(db, "users", uid)
+            );
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              updates[uid] = {
+                displayName: data.displayName || data.email || "Unknown",
+                email: data.email || "",
+                photoURL: data.photoURL || undefined,
+              };
+            }
+          } catch {}
+        })
+      );
+      if (Object.keys(updates).length > 0) {
+        setUserMap((prev) => ({ ...prev, ...updates }));
+      }
+    };
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allUids, project ? project.members : {}, expenses]);
 
   useEffect(() => {
     const fetchProject = async () => {
@@ -124,9 +181,7 @@ export default function ShareProjectPage({
   );
   const remainingBudget = (project.totalBudget as number) - totalSpent;
   const spentPercentage = (totalSpent / (project.totalBudget as number)) * 100;
-  const memberSpending = Object.keys(
-    project.members as Record<string, any>
-  ).reduce((acc, memberId) => {
+  const memberSpending = allUids.reduce((acc, memberId) => {
     const memberExpenses = expenses.filter(
       (expense) => expense.createdBy === memberId
     );
@@ -240,15 +295,27 @@ export default function ShareProjectPage({
                 <Users className="w-6 h-6" />
                 Team Spending Breakdown
               </h3>
-              {Object.entries(project.members as Record<string, any>).map(
-                ([memberId, member]) => {
-                  const m = member as {
-                    displayName: string;
-                    photoURL?: string;
-                    contribution: number;
-                  };
+              {allUids
+                .map((memberId) => {
+                  const member = project.members[memberId] || userMap[memberId];
+                  if (!member) return null;
                   const spent = memberSpending[memberId] || 0;
-                  const spentPercentage = (spent / m.contribution) * 100;
+                  // Find contribution: prefer by UID, else by matching email
+                  let contribution = 0;
+                  if ((project.members as Record<string, any>)[memberId]) {
+                    contribution =
+                      (project.members as Record<string, any>)[memberId]
+                        .contribution || 0;
+                  } else if (member && member.email) {
+                    const found = Object.values(project.members).find(
+                      (m: any) => m.email === member.email
+                    );
+                    if (found) {
+                      contribution = (found as any).contribution || 0;
+                    }
+                  }
+                  const spentPercentage =
+                    contribution > 0 ? (spent / contribution) * 100 : 0;
                   return (
                     <div
                       key={memberId}
@@ -258,18 +325,18 @@ export default function ShareProjectPage({
                         <div className="flex items-center gap-4">
                           <Avatar className="h-16 w-16 ring-4 ring-white/30 shadow-xl">
                             <AvatarImage
-                              src={m.photoURL || "/placeholder.svg"}
+                              src={member.photoURL || "/placeholder.svg"}
                             />
                             <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-xl">
-                              {m.displayName[0]}
+                              {member.displayName[0]}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <span className="font-bold text-2xl text-white">
-                              {m.displayName}
+                              {member.displayName}
                             </span>
                             <p className="text-white/70 text-lg">
-                              Contribution: ₹{m.contribution.toLocaleString()}
+                              Contribution: ₹{contribution.toLocaleString()}
                             </p>
                           </div>
                         </div>
@@ -278,7 +345,9 @@ export default function ShareProjectPage({
                             ₹{spent.toLocaleString()}
                           </p>
                           <p className="text-white/70 text-lg">
-                            {spentPercentage.toFixed(1)}% utilized
+                            {contribution > 0
+                              ? `${spentPercentage.toFixed(1)}% utilized`
+                              : "No contribution set"}
                           </p>
                         </div>
                       </div>
@@ -292,8 +361,8 @@ export default function ShareProjectPage({
                       </div>
                     </div>
                   );
-                }
-              )}
+                })
+                .filter(Boolean)}
             </div>
           </CardContent>
         </Card>
