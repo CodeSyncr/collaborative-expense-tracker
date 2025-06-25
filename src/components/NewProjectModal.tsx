@@ -14,10 +14,19 @@ import {
 import { X, Plus, Users, DollarSign } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { createProject } from "@/lib/firestore";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface Member {
   email: string;
   contribution: string;
+  uid: string;
+}
+
+interface UserOption {
+  uid: string;
+  email: string;
+  displayName: string;
 }
 
 interface NewProjectModalProps {
@@ -32,24 +41,49 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
 
   useEffect(() => {
-    if (user?.email) {
-      setMembers([{ email: user.email ?? "", contribution: "" }]);
+    if (user?.email && user?.uid) {
+      setMembers([{ email: user.email, contribution: "", uid: user.uid }]);
     }
   }, [user]);
 
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const usersSnap = await getDocs(collection(db, "users"));
+      const users: UserOption[] = usersSnap.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          uid: doc.id,
+          email: data.email,
+          displayName: data.displayName || data.email,
+        };
+      });
+      setUserOptions(users);
+    };
+    fetchUsers();
+  }, []);
+
   const addMember = () => {
-    setMembers([...members, { email: "", contribution: "" }]);
+    setMembers([...members, { email: "", contribution: "", uid: "" }]);
   };
 
   const removeMember = (index: number) => {
     setMembers(members.filter((_, i) => i !== index));
   };
 
-  const updateMember = (index: number, field: keyof Member, value: string) => {
+  const updateMember = (
+    index: number,
+    field: keyof Member | "uid",
+    value: string
+  ) => {
     const updatedMembers = [...members];
     updatedMembers[index][field] = value;
+    if (field === "uid") {
+      const user = userOptions.find((u) => u.uid === value);
+      if (user) updatedMembers[index].email = user.email;
+    }
     setMembers(updatedMembers);
   };
 
@@ -87,7 +121,9 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
       onOpenChange(false);
       setProjectName("");
       setTotalBudget("");
-      setMembers([{ email: user.email ?? "", contribution: "" }]);
+      setMembers([
+        { email: user.email ?? "", contribution: "", uid: user.uid },
+      ]);
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Failed to create project.");
@@ -166,21 +202,42 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
                 >
                   <div className="flex-1">
                     <Label className="text-xs text-gray-600 mb-1 block">
-                      Email Address
+                      Member
                     </Label>
-                    <Input
-                      type="email"
-                      value={member.email}
-                      onChange={(e) =>
-                        updateMember(index, "email", e.target.value)
-                      }
-                      placeholder="team@example.com"
-                      className="bg-white/70 border-white/50 focus:border-purple-500"
-                      required
-                      readOnly={
-                        index === 0 && member.email === (user?.email ?? "")
-                      }
-                    />
+                    {index === 0 ? (
+                      <Input
+                        type="text"
+                        value={user?.displayName || user?.email || ""}
+                        readOnly
+                        className="bg-white/70 border-white/50 focus:border-purple-500"
+                      />
+                    ) : (
+                      <select
+                        value={member.uid}
+                        onChange={(e) =>
+                          updateMember(index, "uid", e.target.value)
+                        }
+                        className="bg-white/70 border-white/50 focus:border-purple-500 rounded-md h-10 w-full"
+                        required
+                      >
+                        <option value="" disabled>
+                          Select a user
+                        </option>
+                        {userOptions
+                          .filter(
+                            (u) =>
+                              u.uid !== user?.uid &&
+                              !members.some(
+                                (m, i) => i !== index && m.uid === u.uid
+                              )
+                          )
+                          .map((u) => (
+                            <option key={u.uid} value={u.uid}>
+                              {u.displayName} ({u.email})
+                            </option>
+                          ))}
+                      </select>
+                    )}
                   </div>
                   <div className="flex-1">
                     <Label className="text-xs text-gray-600 mb-1 block">
