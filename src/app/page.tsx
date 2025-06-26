@@ -10,6 +10,7 @@ import Image from "next/image";
 import { Sparkles, TrendingUp, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import InstallPrompt from "@/components/InstallPrompt";
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -109,6 +110,7 @@ export default function Home() {
               </p>
             </CardContent>
           </Card>
+          <InstallPrompt />
         </div>
       </div>
     </div>
