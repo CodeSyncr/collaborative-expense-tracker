@@ -155,7 +155,8 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
       await deleteExpense(
         projectId,
         pendingDelete.expenseId,
-        pendingDelete.imagePath
+        pendingDelete.imagePath,
+        user?.uid || ""
       );
       setDeleteDialogOpen(false);
       setPendingDelete(null);
@@ -638,6 +639,7 @@ function EditExpenseForm({
   onClose: () => void;
   onExpenseUpdated: () => void;
 }) {
+  const { user } = useAuth();
   const [description, setDescription] = useState(expense.description);
   const [amount, setAmount] = useState(expense.amount.toString());
   const [category, setCategory] = useState(expense.category);
@@ -741,13 +743,18 @@ function EditExpenseForm({
         ...newReceipts,
       ];
       // 3. Update expense
-      await updateExpense(projectId, expense.id, {
-        description,
-        amount: Number(amount),
-        category,
-        createdAt: Timestamp.fromDate(new Date(date)),
-        receipts: updatedReceipts,
-      });
+      await updateExpense(
+        projectId,
+        expense.id,
+        {
+          description,
+          amount: Number(amount),
+          category,
+          createdAt: Timestamp.fromDate(new Date(date)),
+          receipts: updatedReceipts,
+        },
+        user?.uid || ""
+      );
       onExpenseUpdated();
       toast.success("Expense updated successfully!");
     } catch {

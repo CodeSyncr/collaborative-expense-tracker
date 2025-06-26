@@ -171,7 +171,8 @@ export const addExpense = async (
 export const deleteExpense = async (
   projectId: string,
   expenseId: string,
-  imagePath: string | null
+  imagePath: string | null,
+  actorUid: string
 ) => {
   try {
     // 1. Delete image from Storage if it exists
@@ -180,9 +181,39 @@ export const deleteExpense = async (
       await deleteObject(imageRef);
     }
 
-    // 2. Delete expense document from Firestore
+    // 2. Fetch project and expense for notification BEFORE deleting
+    const projectDocRef = doc(db, "projects", projectId);
+    const projectSnap = await getDoc(projectDocRef);
     const expenseDocRef = doc(db, "projects", projectId, "expenses", expenseId);
+    const expenseSnap = await getDoc(expenseDocRef);
+
+    // 3. Delete expense document from Firestore
     await deleteDoc(expenseDocRef);
+
+    // 4. Send notification
+    if (projectSnap.exists() && expenseSnap.exists()) {
+      const projectData = projectSnap.data();
+      const members = projectData.members || {};
+      const actorName = members[actorUid]?.displayName || "Someone";
+      const expenseData = expenseSnap.data();
+      const notification = {
+        type: "expense_deleted",
+        projectId,
+        expenseId,
+        by: actorUid,
+        byName: actorName,
+        description: expenseData.description,
+        amount: expenseData.amount,
+        createdAt: Timestamp.now(),
+      };
+      await Promise.all(
+        Object.keys(members)
+          .filter((uid) => uid !== actorUid)
+          .map((uid) =>
+            addDoc(collection(db, "users", uid, "notifications"), notification)
+          )
+      );
+    }
   } catch (error) {
     console.error("Error deleting expense: ", error);
     throw error;
@@ -252,11 +283,40 @@ export const updateExpense = async (
     category: string;
     createdAt: Timestamp;
     receipts: any[];
-  }>
+  }>,
+  actorUid: string
 ) => {
   try {
     const expenseDocRef = doc(db, "projects", projectId, "expenses", expenseId);
     await updateDoc(expenseDocRef, updates);
+
+    // Fetch project and updated expense for notification
+    const projectDocRef = doc(db, "projects", projectId);
+    const projectSnap = await getDoc(projectDocRef);
+    const expenseSnap = await getDoc(expenseDocRef);
+    if (projectSnap.exists() && expenseSnap.exists()) {
+      const projectData = projectSnap.data();
+      const members = projectData.members || {};
+      const actorName = members[actorUid]?.displayName || "Someone";
+      const expenseData = expenseSnap.data();
+      const notification = {
+        type: "expense_edited",
+        projectId,
+        expenseId,
+        by: actorUid,
+        byName: actorName,
+        description: expenseData.description,
+        amount: expenseData.amount,
+        createdAt: Timestamp.now(),
+      };
+      await Promise.all(
+        Object.keys(members)
+          .filter((uid) => uid !== actorUid)
+          .map((uid) =>
+            addDoc(collection(db, "users", uid, "notifications"), notification)
+          )
+      );
+    }
   } catch (error) {
     console.error("Error updating expense: ", error);
     throw error;
