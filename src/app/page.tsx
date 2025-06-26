@@ -17,6 +17,12 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js");
+    }
+  }, []);
+
+  useEffect(() => {
     if (!loading && user) {
       router.push("/dashboard");
     }
