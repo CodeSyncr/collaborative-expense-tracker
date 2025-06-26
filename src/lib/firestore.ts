@@ -241,3 +241,24 @@ export const updateProject = async (
     throw error;
   }
 };
+
+// Update an expense
+export const updateExpense = async (
+  projectId: string,
+  expenseId: string,
+  updates: Partial<{
+    description: string;
+    amount: number;
+    category: string;
+    createdAt: Timestamp;
+    receipts: any[];
+  }>
+) => {
+  try {
+    const expenseDocRef = doc(db, "projects", projectId, "expenses", expenseId);
+    await updateDoc(expenseDocRef, updates);
+  } catch (error) {
+    console.error("Error updating expense: ", error);
+    throw error;
+  }
+};
