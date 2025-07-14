@@ -95,7 +95,7 @@ export function EditProjectModal({
       setError("Monthly budget is required for this project type.");
       return;
     }
-    let totalBudgetNum = Number(totalBudget);
+    const totalBudgetNum = Number(totalBudget);
     if (!isPersonal) {
       const memberContributions = members.map((m) => Number(m.contribution) || 0);
       const sumContributions = memberContributions.reduce((a, b) => a + b, 0);
