@@ -23,7 +23,11 @@ export const createProject = async (
   projectName: string,
   totalBudget: number,
   members: { email: string; contribution: number }[],
-  ownerId: string
+  ownerId: string,
+  projectType: string, // template name
+  categories: string[],
+  sharedBudget: boolean,
+  monthlyBudget?: number
 ) => {
   try {
     const memberEmails = members.map((m) => m.email);
@@ -62,7 +66,7 @@ export const createProject = async (
     const memberUids = Object.keys(membersMap);
 
     // 3. Create the project document
-    const projectDocRef = await addDoc(collection(db, "projects"), {
+    const projectDoc: any = {
       projectName,
       totalBudget,
       ownerId,
@@ -71,7 +75,14 @@ export const createProject = async (
       memberUids, // For secure querying
       createdAt: new Date(),
       shareableId: null, // Initially null
-    });
+      projectType,
+      categories,
+      sharedBudget,
+    };
+    if (monthlyBudget !== undefined) {
+      projectDoc.monthlyBudget = monthlyBudget;
+    }
+    const projectDocRef = await addDoc(collection(db, "projects"), projectDoc);
 
     return { id: projectDocRef.id };
   } catch (error) {

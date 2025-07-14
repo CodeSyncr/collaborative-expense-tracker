@@ -13,6 +13,9 @@ export interface Project {
       contribution: number;
     };
   };
+  sharedBudget?: boolean;
+  projectType?: string;
+  monthlyBudget?: number;
 }
 
 export interface Expense {

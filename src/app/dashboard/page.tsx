@@ -272,6 +272,18 @@ export default function Dashboard() {
     0
   );
 
+  // Helper to calculate monthly spent for a project
+  function getMonthlySpent(project: any) {
+    if (!project.monthlyBudget) return 0;
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    return (project.expenses || []).filter((expense: any) => {
+      const date = expense.createdAt.toDate ? expense.createdAt.toDate() : new Date(expense.createdAt.seconds * 1000);
+      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+    }).reduce((sum: number, expense: any) => sum + (expense.amount || 0), 0);
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       {/* Header */}
@@ -415,24 +427,27 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-r from-blue-500 to-cyan-500 border-0 text-white overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-            <CardContent className="p-6 relative z-10">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium">
-                    Total Budget
-                  </p>
-                  <p className="text-3xl font-bold">
-                    ₹{(totalBudget / 100000).toFixed(1)}L
-                  </p>
+          {/* Total Budget Card - only show if there is at least one shared project */}
+          {projectsWithExpenses.some(p => p.sharedBudget !== false && p.projectType !== 'Simple (Personal)') && (
+            <Card className="bg-gradient-to-r from-blue-500 to-cyan-500 border-0 text-white overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+              <CardContent className="p-6 relative z-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-blue-100 text-sm font-medium">
+                      Total Budget
+                    </p>
+                    <p className="text-3xl font-bold">
+                      ₹{(totalBudget / 100000).toFixed(1)}L
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                    <DollarSign className="w-6 h-6" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                  <DollarSign className="w-6 h-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="bg-gradient-to-r from-emerald-500 to-teal-500 border-0 text-white overflow-hidden relative">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
@@ -486,9 +501,23 @@ export default function Dashboard() {
                       0
                     )
                   : 0;
-                const spentPercentage =
-                  (totalSpent / (project.totalBudget || 1)) * 100;
-                const color = "from-purple-500 to-pink-500"; // You can randomize or assign based on project
+                const isMonthlyBudgetProject = project.projectType === "Roommates/Flatmates" || project.projectType === "Family Budget";
+                const monthlySpent = isMonthlyBudgetProject ? getMonthlySpent(project) : 0;
+                const monthlyBudget = Number(project.monthlyBudget) || 0;
+                const totalBudget = Number(project.totalBudget) || 0;
+                console.log("project.projectType", project.projectType);
+                // Robust utilization calculations
+                let spentPercentage = 0;
+                if (!isMonthlyBudgetProject && project.sharedBudget !== false && project.projectType !== 'Simple (Personal)' && totalBudget > 0) {
+                  spentPercentage = Math.max(0, Math.min((totalSpent / totalBudget) * 100, 100));
+                }
+                let monthlyUtilization = 0;
+                if (isMonthlyBudgetProject && monthlyBudget > 0) {
+                  monthlyUtilization = Math.max(0, Math.min((monthlySpent / monthlyBudget) * 100, 100));
+                }
+                const color = "from-purple-500 to-pink-500";
+                // Hide progress bar for personal projects
+                const showProgress = project.sharedBudget !== false && project.projectType !== 'Simple (Personal)';
                 return (
                   <Link key={project.id} href={`/project/${project.id}`}>
                     <Card className="group hover:shadow-2xl transition-all duration-300 transform hover:scale-105 bg-white/80 backdrop-blur-sm border-white/20 overflow-hidden relative">
@@ -502,8 +531,13 @@ export default function Dashboard() {
                               {project.projectName}
                             </h3>
                             <p className="text-gray-500 text-sm">
-                              Budget: ₹
-                              {project.totalBudget.toLocaleString("en-US")}
+                              {project.sharedBudget === false || project.projectType === 'Simple (Personal)'
+                                ? 'Personal Project'
+                                : isMonthlyBudgetProject
+                                  ? monthlyBudget > 0
+                                    ? <>Monthly Budget: ₹{monthlyBudget.toLocaleString("en-US")}</>
+                                    : <>Monthly Budget: Not set</>
+                                  : <>Budget: ₹{totalBudget.toLocaleString("en-US")}</>}
                             </p>
                           </div>
                           <div
@@ -512,28 +546,46 @@ export default function Dashboard() {
                             <TrendingUp className="w-6 h-6 text-white" />
                           </div>
                         </div>
-
                         {/* Progress */}
+                        {showProgress && (
                         <div className="mb-4">
                           <div className="flex justify-between text-sm mb-2">
                             <span className="text-gray-600">Spent</span>
                             <span className="font-semibold">
-                              ₹{totalSpent.toLocaleString("en-US")}
+                              ₹{(isMonthlyBudgetProject ? monthlySpent : totalSpent).toLocaleString("en-US")}
                             </span>
                           </div>
                           <div className="w-full bg-gray-200 rounded-full h-2">
                             <div
                               className={`h-2 rounded-full bg-gradient-to-r ${color} transition-all duration-500`}
                               style={{
-                                width: `${Math.min(spentPercentage, 100)}%`,
+                                width: `${isMonthlyBudgetProject ? monthlyUtilization : spentPercentage}%`,
                               }}
                             ></div>
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {spentPercentage.toFixed(1)}% of budget used
-                          </p>
+                          {isMonthlyBudgetProject ? (
+                            monthlyBudget > 0 ? (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {monthlyUtilization.toFixed(1)}% of monthly budget used
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-500 mt-1">
+                                0% of monthly budget used
+                              </p>
+                            )
+                          ) : (
+                            totalBudget > 0 ? (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {spentPercentage.toFixed(1)}% of budget used
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-500 mt-1">
+                                0% of budget used
+                              </p>
+                            )
+                          )}
                         </div>
-
+                        )}
                         {/* Members */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">

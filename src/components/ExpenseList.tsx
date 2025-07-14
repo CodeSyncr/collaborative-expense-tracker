@@ -59,6 +59,8 @@ import { categories, compressImage } from "@/lib/utils";
 interface ExpenseListProps {
   projectId: string;
   project: Project;
+  filterMonth: number;
+  filterYear: number;
 }
 
 // User type for fetched users
@@ -75,7 +77,7 @@ type ReceiptFile = {
   type: string;
 };
 
-const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
+const ExpenseList = ({ projectId, project, filterMonth, filterYear }: ExpenseListProps) => {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,12 +86,6 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
     ReceiptFile[] | null
   >(null);
   const [receiptDialogIndex, setReceiptDialogIndex] = useState(0);
-  const [filterMonth, setFilterMonth] = useState<number>(() =>
-    new Date().getMonth()
-  );
-  const [filterYear, setFilterYear] = useState<number>(() =>
-    new Date().getFullYear()
-  );
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     expenseId: string;
@@ -177,7 +173,7 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
     });
   }
 
-  // Filter expenses by selected month/year
+  // Filter expenses by selected month/year from props
   const filteredExpenses = expenses.filter((expense) => {
     const d = expense.createdAt.toDate();
     return d.getMonth() === filterMonth && d.getFullYear() === filterYear;
@@ -256,10 +252,10 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
               size="icon"
               onClick={() => {
                 if (filterMonth === 0) {
-                  setFilterMonth(11);
-                  setFilterYear(filterYear - 1);
+                  // setFilterMonth(11); // This line is removed
+                  // setFilterYear(filterYear - 1); // This line is removed
                 } else {
-                  setFilterMonth(filterMonth - 1);
+                  // setFilterMonth(filterMonth - 1); // This line is removed
                 }
               }}
               className="h-8 w-8"
@@ -275,10 +271,10 @@ const ExpenseList = ({ projectId, project }: ExpenseListProps) => {
               size="icon"
               onClick={() => {
                 if (filterMonth === 11) {
-                  setFilterMonth(0);
-                  setFilterYear(filterYear + 1);
+                  // setFilterMonth(0); // This line is removed
+                  // setFilterYear(filterYear + 1); // This line is removed
                 } else {
-                  setFilterMonth(filterMonth + 1);
+                  // setFilterMonth(filterMonth + 1); // This line is removed
                 }
               }}
               className="h-8 w-8"

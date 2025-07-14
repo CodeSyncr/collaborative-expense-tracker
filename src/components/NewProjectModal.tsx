@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { createProject } from "@/lib/firestore";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { projectTemplates, ProjectTemplate } from "@/lib/projectTemplates";
 
 interface Member {
   email: string;
@@ -42,12 +43,25 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [monthlyBudget, setMonthlyBudget] = useState("");
 
   useEffect(() => {
-    if (user?.email && user?.uid) {
-      setMembers([{ email: user.email, contribution: "", uid: user.uid }]);
+    if (selectedTemplate) {
+      setProjectName(selectedTemplate.name !== "Custom" ? selectedTemplate.name : "");
+      setCategories(selectedTemplate.categories);
+      if (!selectedTemplate.sharedBudget && user?.email && user?.uid) {
+        setMembers([{ email: user.email, contribution: "", uid: user.uid }]);
+      }
+      // Pre-fill monthly budget if template provides it
+      if (selectedTemplate.monthlyBudget !== undefined) {
+        setMonthlyBudget(selectedTemplate.monthlyBudget.toString());
+      } else {
+        setMonthlyBudget("");
+      }
     }
-  }, [user]);
+  }, [selectedTemplate, user]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -94,17 +108,38 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
       setError("You must be logged in to create a project.");
       return;
     }
-    if (!projectName.trim() || !totalBudget.trim()) {
-      setError("Project name and total budget are required.");
+    const isMonthlyBudgetProject = selectedTemplate?.name === "Roommates/Flatmates" || selectedTemplate?.name === "Family Budget";
+    if (!projectName.trim() || (isMonthlyBudgetProject && !monthlyBudget.trim()) || (!isMonthlyBudgetProject && selectedTemplate?.sharedBudget !== false && !totalBudget.trim())) {
+      setError(
+        isMonthlyBudgetProject
+          ? "Project name and monthly budget are required."
+          : selectedTemplate?.sharedBudget === false
+            ? "Project name is required."
+            : "Project name and total budget are required."
+      );
       return;
     }
     const totalBudgetNum = Number(totalBudget);
+    const monthlyBudgetNum = Number(monthlyBudget);
     const memberContributions = members.map((m) => Number(m.contribution) || 0);
     const sumContributions = memberContributions.reduce((a, b) => a + b, 0);
-    if (sumContributions !== totalBudgetNum) {
-      setError(
-        `Total contributions (₹${sumContributions}) must equal the total budget (₹${totalBudgetNum}).`
-      );
+    if (isMonthlyBudgetProject) {
+      if (sumContributions !== monthlyBudgetNum) {
+        setError(
+          `Total contributions (₹${sumContributions}) must equal the monthly budget (₹${monthlyBudgetNum}).`
+        );
+        return;
+      }
+    } else {
+      if (sumContributions !== totalBudgetNum) {
+        setError(
+          `Total contributions (₹${sumContributions}) must equal the total budget (₹${totalBudgetNum}).`
+        );
+        return;
+      }
+    }
+    if ((selectedTemplate?.name === "Roommates/Flatmates" || selectedTemplate?.name === "Family Budget") && !monthlyBudget.trim()) {
+      setError("Monthly budget is required for this project type.");
       return;
     }
     setLoading(true);
@@ -116,7 +151,11 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
           email: m.email,
           contribution: Number(m.contribution),
         })),
-        user.uid
+        user.uid,
+        selectedTemplate?.name || "Custom",
+        selectedTemplate?.categories || [],
+        selectedTemplate?.sharedBudget ?? true,
+        selectedTemplate?.name === "Roommates/Flatmates" || selectedTemplate?.name === "Family Budget" ? Number(monthlyBudget) : undefined
       );
       onOpenChange(false);
       setProjectName("");
@@ -145,6 +184,21 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
           <p className="text-gray-500 text-base sm:text-lg">
             Set up a new collaborative expense tracking project
           </p>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {projectTemplates.map((template) => (
+              <button
+                key={template.name}
+                type="button"
+                className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all ${selectedTemplate?.name === template.name ? "border-purple-500 bg-purple-50" : "border-gray-200 bg-white hover:bg-gray-50"}`}
+                onClick={() => setSelectedTemplate(template)}
+              >
+                {template.name}
+              </button>
+            ))}
+          </div>
+          {selectedTemplate && (
+            <p className="text-xs text-gray-500 mt-1">{selectedTemplate.description}</p>
+          )}
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
@@ -165,125 +219,163 @@ export function NewProjectModal({ open, onOpenChange }: NewProjectModalProps) {
             />
           </div>
 
-          <div className="space-y-2 sm:space-y-3">
-            <Label
-              htmlFor="totalBudget"
-              className="text-sm font-semibold text-gray-700"
-            >
-              Total Budget
-            </Label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
-              <Input
-                id="totalBudget"
-                type="number"
-                value={totalBudget}
-                onChange={(e) => setTotalBudget(e.target.value)}
-                placeholder="500000"
-                className="h-10 sm:h-12 pl-8 sm:pl-12 bg-white/50 border-gray-200 focus:border-purple-500 focus:ring-purple-500/20"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3 sm:space-y-4">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
-              <Label className="text-sm font-semibold text-gray-700">
-                Team Members & Contributions
-              </Label>
-            </div>
-
+          {/* Only show Total Budget if sharedBudget is true or no template selected, and not Roommates/Flatmates or Family Budget */}
+          {(selectedTemplate && (!selectedTemplate.sharedBudget || (selectedTemplate.sharedBudget && selectedTemplate.name !== "Roommates/Flatmates" && selectedTemplate.name !== "Family Budget"))) && (
             <div className="space-y-2 sm:space-y-3">
-              {members.map((member, index) => (
-                <div
-                  key={index}
-                  className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-end p-3 sm:p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg sm:rounded-xl border border-purple-100"
-                >
-                  <div className="flex-1">
-                    <Label className="text-xs text-gray-600 mb-1 block">
-                      Member
-                    </Label>
-                    {index === 0 ? (
-                      <Input
-                        type="text"
-                        value={user?.displayName || user?.email || ""}
-                        readOnly
-                        className="bg-white/70 border-white/50 focus:border-purple-500"
-                      />
-                    ) : (
-                      <select
-                        value={member.uid}
-                        onChange={(e) =>
-                          updateMember(index, "uid", e.target.value)
-                        }
-                        className="bg-white/70 border-white/50 focus:border-purple-500 rounded-md h-10 w-full"
-                        required
+              <Label
+                htmlFor="totalBudget"
+                className="text-sm font-semibold text-gray-700"
+              >
+                Total Budget
+              </Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
+                <Input
+                  id="totalBudget"
+                  type="number"
+                  value={totalBudget}
+                  onChange={(e) => setTotalBudget(e.target.value)}
+                  placeholder="500000"
+                  className="h-10 sm:h-12 pl-8 sm:pl-12 bg-white/50 border-gray-200 focus:border-purple-500 focus:ring-purple-500/20"
+                  required
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Add categories display if template is selected */}
+          {selectedTemplate && categories.length > 0 && (
+            <div className="space-y-2 sm:space-y-3">
+              <Label className="text-sm font-semibold text-gray-700">Categories</Label>
+              <div className="flex flex-wrap gap-2">
+                {categories.map((cat) => (
+                  <span key={cat} className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">{cat}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Hide members section if Simple/Personal template is selected */}
+          {(!selectedTemplate || selectedTemplate.sharedBudget) && (
+            <div className="space-y-3 sm:space-y-4">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                <Label className="text-sm font-semibold text-gray-700">
+                  Team Members & Contributions
+                </Label>
+              </div>
+
+              <div className="space-y-2 sm:space-y-3">
+                {members.map((member, index) => (
+                  <div
+                    key={index}
+                    className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-end p-3 sm:p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg sm:rounded-xl border border-purple-100"
+                  >
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-600 mb-1 block">
+                        Member
+                      </Label>
+                      {index === 0 ? (
+                        <Input
+                          type="text"
+                          value={user?.displayName || user?.email || ""}
+                          readOnly
+                          className="bg-white/70 border-white/50 focus:border-purple-500"
+                        />
+                      ) : (
+                        <select
+                          value={member.uid}
+                          onChange={(e) =>
+                            updateMember(index, "uid", e.target.value)
+                          }
+                          className="bg-white/70 border-white/50 focus:border-purple-500 rounded-md h-10 w-full"
+                          required
+                        >
+                          <option value="" disabled>
+                            Select a user
+                          </option>
+                          {userOptions
+                            .filter(
+                              (u) =>
+                                u.uid !== user?.uid &&
+                                !members.some(
+                                  (m, i) => i !== index && m.uid === u.uid
+                                )
+                            )
+                            .map((u) => (
+                              <option key={u.uid} value={u.uid}>
+                                {u.displayName} ({u.email})
+                              </option>
+                            ))}
+                        </select>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-600 mb-1 block">
+                        Contribution Amount
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-xs sm:text-sm">
+                          ₹
+                        </span>
+                        <Input
+                          type="number"
+                          value={member.contribution}
+                          onChange={(e) =>
+                            updateMember(index, "contribution", e.target.value)
+                          }
+                          placeholder="250000"
+                          className="pl-6 sm:pl-8 bg-white/70 border-white/50 focus:border-purple-500"
+                          required
+                        />
+                      </div>
+                    </div>
+                    {index > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeMember(index)}
+                        className="shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
                       >
-                        <option value="" disabled>
-                          Select a user
-                        </option>
-                        {userOptions
-                          .filter(
-                            (u) =>
-                              u.uid !== user?.uid &&
-                              !members.some(
-                                (m, i) => i !== index && m.uid === u.uid
-                              )
-                          )
-                          .map((u) => (
-                            <option key={u.uid} value={u.uid}>
-                              {u.displayName} ({u.email})
-                            </option>
-                          ))}
-                      </select>
+                        <X className="h-4 w-4" />
+                      </Button>
                     )}
                   </div>
-                  <div className="flex-1">
-                    <Label className="text-xs text-gray-600 mb-1 block">
-                      Contribution Amount
-                    </Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-xs sm:text-sm">
-                        ₹
-                      </span>
-                      <Input
-                        type="number"
-                        value={member.contribution}
-                        onChange={(e) =>
-                          updateMember(index, "contribution", e.target.value)
-                        }
-                        placeholder="250000"
-                        className="pl-6 sm:pl-8 bg-white/70 border-white/50 focus:border-purple-500"
-                        required
-                      />
-                    </div>
-                  </div>
-                  {index > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeMember(index)}
-                      className="shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addMember}
-              className="w-full border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Team Member
-            </Button>
-          </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addMember}
+                className="w-full border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Team Member
+              </Button>
+            </div>
+          )}
+
+          {(selectedTemplate?.name === "Roommates/Flatmates" || selectedTemplate?.name === "Family Budget") && (
+            <div className="space-y-2 sm:space-y-3">
+              <Label htmlFor="monthlyBudget" className="text-sm font-semibold text-gray-700">
+                Monthly Budget
+              </Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
+                <Input
+                  id="monthlyBudget"
+                  type="number"
+                  value={monthlyBudget}
+                  onChange={(e) => setMonthlyBudget(e.target.value)}
+                  placeholder="30000"
+                  className="h-10 sm:h-12 pl-8 sm:pl-12 bg-white/50 border-gray-200 focus:border-purple-500 focus:ring-purple-500/20"
+                  required
+                />
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="text-red-500 text-xs sm:text-sm text-center">

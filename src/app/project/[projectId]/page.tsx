@@ -15,6 +15,8 @@ import {
   Users,
   AlertTriangle,
   Plus,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
@@ -90,6 +92,9 @@ export default function ProjectDetail({ params }: PageProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [userMap, setUserMap] = useState<Record<string, User>>({});
+  // Add month/year state at the top of the component
+  const [filterMonth, setFilterMonth] = useState<number>(() => new Date().getMonth());
+  const [filterYear, setFilterYear] = useState<number>(() => new Date().getFullYear());
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -217,20 +222,42 @@ export default function ProjectDetail({ params }: PageProps) {
 
   const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const remainingBudget = project ? project.totalBudget - totalSpent : 0;
-  const spentPercentage = project
-    ? (totalSpent / project.totalBudget) * 100
-    : 0;
+  // For Team Spending Breakdown, use filtered expenses for monthly budget projects
+  const isMonthlyBudgetProject = project.projectType === "Roommates/Flatmates" || project.projectType === "Family Budget";
   const memberSpending = allUids.reduce((acc, memberId) => {
-    const memberExpenses = expenses.filter(
-      (expense) => expense.createdBy === memberId
-    );
-    const totalSpent = memberExpenses.reduce(
-      (sum, expense) => sum + expense.amount,
-      0
-    );
+    const relevantExpenses = isMonthlyBudgetProject
+      ? expenses.filter((expense) => {
+          const date = expense.createdAt.toDate ? expense.createdAt.toDate() : new Date(expense.createdAt.seconds * 1000);
+          return date.getMonth() === filterMonth && date.getFullYear() === filterYear && expense.createdBy === memberId;
+        })
+      : expenses.filter((expense) => expense.createdBy === memberId);
+    const totalSpent = relevantExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     acc[memberId] = totalSpent;
     return acc;
   }, {} as Record<string, number>);
+
+  // Calculate monthly spent for monthly budget projects using filterMonth/filterYear
+  const monthlySpent = isMonthlyBudgetProject && project.monthlyBudget ? expenses.filter((expense) => {
+      const date = expense.createdAt.toDate ? expense.createdAt.toDate() : new Date(expense.createdAt.seconds * 1000);
+      return date.getMonth() === filterMonth && date.getFullYear() === filterYear;
+    }).reduce((sum, expense) => sum + expense.amount, 0) : 0;
+  // Robust utilization calculations
+  let spentPercentage = 0;
+  if (!isMonthlyBudgetProject && project.sharedBudget !== false && project.projectType !== 'Simple (Personal)' && project.totalBudget > 0) {
+    spentPercentage = Math.max(0, Math.min((totalSpent / project.totalBudget) * 100, 100));
+  }
+  let monthlyUtilization = 0;
+  if (isMonthlyBudgetProject && (project.monthlyBudget ?? 0) > 0) {
+    monthlyUtilization = Math.max(0, Math.min((monthlySpent / (project.monthlyBudget ?? 0)) * 100, 100));
+  }
+
+  // For month/year selector
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  ];
+  const years = Array.from(new Set(expenses.map((e) => e.createdAt.toDate().getFullYear())));
+  if (!years.includes(new Date().getFullYear())) years.push(new Date().getFullYear());
+  years.sort((a, b) => b - a);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -334,142 +361,232 @@ export default function ProjectDetail({ params }: PageProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-8 relative z-10">
-              {/* Key Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-                  <div className="flex items-center gap-3 mb-2">
-                    <DollarSign className="w-5 h-5 text-red-200" />
-                    <p className="text-red-100 text-sm font-medium">
-                      Total Spent
+              {/* Key Stats - show only Total Spent for Simple (Personal) projects */}
+              {project.projectType === 'Simple (Personal)' ? (
+                <div className="grid grid-cols-1 gap-6">
+                  <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                    <div className="flex items-center gap-3 mb-2">
+                      <DollarSign className="w-5 h-5 text-red-200" />
+                      <p className="text-red-100 text-sm font-medium">
+                        Total Spent
+                      </p>
+                    </div>
+                    <p className="text-3xl font-bold">
+                      ₹{totalSpent.toLocaleString("en-US")}
                     </p>
                   </div>
-                  <p className="text-3xl font-bold">
-                    ₹{totalSpent.toLocaleString("en-US")}
-                  </p>
                 </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-                  <div className="flex items-center gap-3 mb-2">
-                    <TrendingUp className="w-5 h-5 text-green-200" />
-                    <p className="text-green-100 text-sm font-medium">
-                      Remaining Budget
-                    </p>
-                  </div>
-                  <p className="text-3xl font-bold">
-                    ₹{remainingBudget.toLocaleString("en-US")}
-                  </p>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Users className="w-5 h-5 text-blue-200" />
-                    <p className="text-blue-100 text-sm font-medium">
-                      Total Budget
-                    </p>
-                  </div>
-                  <p className="text-3xl font-bold">
-                    ₹{project.totalBudget.toLocaleString("en-US")}
-                  </p>
-                </div>
-              </div>
-              {/* Progress Bar */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-white/90 font-medium">
-                    Budget Utilization
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {spentPercentage > 80 && (
-                      <AlertTriangle className="w-4 h-4 text-yellow-300" />
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                      <div className="flex items-center gap-3 mb-2">
+                        <DollarSign className="w-5 h-5 text-red-200" />
+                        <p className="text-red-100 text-sm font-medium">
+                          {isMonthlyBudgetProject ? "Monthly Spent" : "Total Spent"}
+                        </p>
+                      </div>
+                      <p className="text-3xl font-bold">
+                        ₹{(isMonthlyBudgetProject ? monthlySpent : totalSpent).toLocaleString("en-US")}
+                      </p>
+                    </div>
+                    {isMonthlyBudgetProject && (project.monthlyBudget ?? 0) > 0 ? (
+                      <>
+                        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                          <div className="flex items-center gap-3 mb-2">
+                            <TrendingUp className="w-5 h-5 text-green-200" />
+                            <p className="text-green-100 text-sm font-medium">
+                              Monthly Budget
+                            </p>
+                          </div>
+                          <p className="text-3xl font-bold">
+                            ₹{(project.monthlyBudget ?? 0).toLocaleString("en-US")}
+                          </p>
+                        </div>
+                      </>
+                    ) : project.sharedBudget !== false && project.projectType !== 'Simple (Personal)' && (
+                      <>
+                        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                          <div className="flex items-center gap-3 mb-2">
+                            <TrendingUp className="w-5 h-5 text-green-200" />
+                            <p className="text-green-100 text-sm font-medium">
+                              Remaining Budget
+                            </p>
+                          </div>
+                          <p className="text-3xl font-bold">
+                            ₹{remainingBudget.toLocaleString("en-US")}
+                          </p>
+                        </div>
+                        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Users className="w-5 h-5 text-blue-200" />
+                            <p className="text-blue-100 text-sm font-medium">
+                              Total Budget
+                            </p>
+                          </div>
+                          <p className="text-3xl font-bold">
+                            ₹{project.totalBudget.toLocaleString("en-US")}
+                          </p>
+                        </div>
+                      </>
                     )}
-                    <span className="font-bold text-xl">
-                      {spentPercentage.toFixed(1)}%
-                    </span>
                   </div>
-                </div>
-                <div className="w-full bg-white/20 rounded-full h-4">
-                  <div
-                    className="h-4 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out"
-                    style={{ width: `${Math.min(spentPercentage, 100)}%` }}
-                  ></div>
-                </div>
-              </div>
-              {/* Spending by Member */}
-              <div className="space-y-6">
-                <h3 className="font-bold text-xl text-white">
-                  Team Spending Breakdown
-                </h3>
-                {project &&
-                  allUids
-                    .map((memberId) => {
-                      const member =
-                        project.members[memberId] || userMap[memberId];
-                      if (!member) return null;
-                      const spent = memberSpending[memberId] || 0;
-                      // Find contribution: prefer by UID, else by matching email
-                      let contribution = 0;
-                      if (project.members[memberId]) {
-                        contribution =
-                          project.members[memberId].contribution || 0;
-                      } else if (member && member.email) {
-                        const found = Object.values(project.members).find(
-                          (m) => m.email === member.email
-                        );
-                        if (found) {
-                          contribution = found.contribution || 0;
-                        }
-                      }
-                      const spentPercentage =
-                        contribution > 0 ? (spent / contribution) * 100 : 0;
-                      return (
+                  {/* Progress Bar - show monthly utilization for monthly budget projects */}
+                  {isMonthlyBudgetProject && (project.monthlyBudget ?? 0) > 0 ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90 font-medium">
+                          Monthly Utilization
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {monthlyUtilization > 80 && (
+                            <AlertTriangle className="w-4 h-4 text-yellow-300" />
+                          )}
+                          <span className="font-bold text-xl">
+                            {monthlyUtilization.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-4">
                         <div
-                          key={memberId}
-                          className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20"
-                        >
-                          <div className="flex justify-between items-center mb-4">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="h-12 w-12 ring-2 ring-white/30">
-                                <AvatarImage
-                                  src={member.photoURL || "/placeholder.svg"}
-                                />
-                                <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold">
-                                  {member.displayName[0]}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <span className="font-semibold text-lg text-white">
-                                  {member.displayName}
-                                </span>
-                                <p className="text-white/70 text-sm">
-                                  Contribution: ₹
-                                  {contribution
-                                    ? contribution.toLocaleString("en-US")
-                                    : "-"}
-                                </p>
+                          className="h-4 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out"
+                          style={{ width: `${monthlyUtilization}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : isMonthlyBudgetProject && (project.monthlyBudget ?? 0) <= 0 ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90 font-medium">
+                          Monthly Utilization
+                        </span>
+                        <span className="font-bold text-xl">0%</span>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-4">
+                        <div
+                          className="h-4 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out"
+                          style={{ width: `0%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : project.sharedBudget !== false && project.projectType !== 'Simple (Personal)' && project.totalBudget > 0 ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90 font-medium">
+                          Budget Utilization
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {spentPercentage > 80 && (
+                            <AlertTriangle className="w-4 h-4 text-yellow-300" />
+                          )}
+                          <span className="font-bold text-xl">
+                            {spentPercentage.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-4">
+                        <div
+                          className="h-4 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out"
+                          style={{ width: `${spentPercentage}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : project.sharedBudget !== false && project.projectType !== 'Simple (Personal)' && project.totalBudget <= 0 ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90 font-medium">
+                          Budget Utilization
+                        </span>
+                        <span className="font-bold text-xl">0%</span>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-4">
+                        <div
+                          className="h-4 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out"
+                          style={{ width: `0%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {/* Spending by Member */}
+                  <div className="space-y-6">
+                    <h3 className="font-bold text-xl text-white">
+                      Team Spending Breakdown
+                    </h3>
+                    {project &&
+                      allUids
+                        .map((memberId) => {
+                          const member =
+                            project.members[memberId] || userMap[memberId];
+                          if (!member) return null;
+                          const spent = memberSpending[memberId] || 0;
+                          // Find contribution: prefer by UID, else by matching email
+                          let contribution = 0;
+                          if (project.members[memberId]) {
+                            contribution =
+                              project.members[memberId].contribution || 0;
+                          } else if (member && member.email) {
+                            const found = Object.values(project.members).find(
+                              (m) => m.email === member.email
+                            );
+                            if (found) {
+                              contribution = found.contribution || 0;
+                            }
+                          }
+                          const spentPercentage =
+                            contribution > 0 ? (spent / contribution) * 100 : 0;
+                          return (
+                            <div
+                              key={memberId}
+                              className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20"
+                            >
+                              <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-3">
+                                  <Avatar className="h-12 w-12 ring-2 ring-white/30">
+                                    <AvatarImage
+                                      src={member.photoURL || "/placeholder.svg"}
+                                    />
+                                    <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold">
+                                      {member.displayName[0]}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <span className="font-semibold text-lg text-white">
+                                      {member.displayName}
+                                    </span>
+                                    <p className="text-white/70 text-sm">
+                                      Contribution: ₹
+                                      {contribution
+                                        ? contribution.toLocaleString("en-US")
+                                        : "-"}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-xl text-white">
+                                    ₹{spent.toLocaleString("en-US")}
+                                  </p>
+                                  <p className="text-white/70 text-sm">
+                                    {contribution > 0
+                                      ? `${spentPercentage.toFixed(1)}% used`
+                                      : "No contribution set"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="w-full bg-white/20 rounded-full h-3">
+                                <div
+                                  className="h-3 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out"
+                                  style={{
+                                    width: `${Math.min(spentPercentage, 100)}%`,
+                                  }}
+                                ></div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="font-bold text-xl text-white">
-                                ₹{spent.toLocaleString("en-US")}
-                              </p>
-                              <p className="text-white/70 text-sm">
-                                {contribution > 0
-                                  ? `${spentPercentage.toFixed(1)}% used`
-                                  : "No contribution set"}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="w-full bg-white/20 rounded-full h-3">
-                            <div
-                              className="h-3 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out"
-                              style={{
-                                width: `${Math.min(spentPercentage, 100)}%`,
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })
-                    .filter(Boolean)}
-              </div>
+                          );
+                        })
+                        .filter(Boolean)}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -493,7 +610,46 @@ export default function ProjectDetail({ params }: PageProps) {
             </Button>
           </div>
           {/* Expense List */}
-          <ExpenseList projectId={project.id} project={project} />
+          {isMonthlyBudgetProject && (
+            <div className="flex items-center gap-2 mb-4">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (filterMonth === 0) {
+                    setFilterMonth(11);
+                    setFilterYear(filterYear - 1);
+                  } else {
+                    setFilterMonth(filterMonth - 1);
+                  }
+                }}
+                className="h-8 w-8"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="font-semibold text-base">
+                {months[filterMonth]} {filterYear}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (filterMonth === 11) {
+                    setFilterMonth(0);
+                    setFilterYear(filterYear + 1);
+                  } else {
+                    setFilterMonth(filterMonth + 1);
+                  }
+                }}
+                className="h-8 w-8"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          <ExpenseList projectId={project.id} project={project} filterMonth={filterMonth} filterYear={filterYear} />
         </div>
         {/* Add Expense Modal */}
         <AddExpenseForm
